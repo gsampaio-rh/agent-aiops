@@ -13,6 +13,7 @@ from config.settings import (
     APP_TITLE, APP_ICON, DEFAULT_MODEL, MODEL_PARAMS, SHOW_DETAILED_METRICS
 )
 from services.ollama_service import OllamaService
+from services.agent_service import ReactAgent, AgentStep, StepType
 from utils.chat_utils import (
     initialize_session_state, add_message, clear_chat_history, 
     format_metrics, export_chat_history, format_timestamp
@@ -129,6 +130,124 @@ st.markdown(
         opacity: 0.9;
     }
     
+    /* Agent thinking - Ultra minimalist Jobs/Ive approach */
+    .agent-thinking {
+        margin: 1.5rem 0;
+        padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+        max-width: 100%;
+    }
+    
+    .thinking-step {
+        margin: 0;
+        padding: 0.4rem 0;
+        border: none;
+        background: transparent;
+        opacity: 0.6;
+        transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        font-size: 0.9rem;
+        line-height: 1.4;
+        display: flex;
+        align-items: baseline;
+    }
+    
+    .thinking-step.current {
+        opacity: 1;
+        transform: translateX(2px);
+    }
+    
+    .thinking-step.completed {
+        opacity: 0.5;
+    }
+    
+    .step-label {
+        display: inline-block;
+        font-weight: 700;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-right: 1rem;
+        min-width: 90px;
+        flex-shrink: 0;
+    }
+    
+    .step-thought .step-label { color: #86868B; }
+    .step-tool-selection .step-label { color: #007AFF; }
+    .step-tool-use .step-label { color: #FF9500; }
+    .step-tool-result .step-label { color: #34C759; }
+    .step-final-answer .step-label { color: #1D1D1F; font-weight: 800; }
+    
+    .step-content {
+        color: #1D1D1F;
+        font-weight: 400;
+        flex: 1;
+        word-wrap: break-word;
+    }
+    
+    .step-metadata {
+        font-size: 0.65rem;
+        color: #86868B;
+        margin-left: 106px;
+        margin-top: 0.2rem;
+        font-family: 'SF Mono', Monaco, monospace;
+        opacity: 0.8;
+    }
+    
+    /* Thinking indicator - minimal animation */
+    .thinking-indicator {
+        display: flex;
+        align-items: center;
+        font-size: 0.85rem;
+        color: #86868B;
+        margin: 0.8rem 0;
+        font-weight: 500;
+    }
+    
+    .thinking-dots {
+        margin-left: 0.5rem;
+        width: 20px;
+    }
+    
+    .thinking-dots::after {
+        content: '';
+        animation: thinking 2s ease-in-out infinite;
+    }
+    
+    @keyframes thinking {
+        0% { content: '.'; }
+        33% { content: '..'; }
+        66% { content: '...'; }
+        100% { content: '.'; }
+    }
+    
+    /* Streaming effect for agent steps */
+    .agent-step-stream {
+        animation: streamIn 0.3s ease-out;
+    }
+    
+    @keyframes streamIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    /* Agent steps visibility message */
+    .steps-hidden-message {
+        text-align: center;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        color: #86868B;
+        font-size: 0.85rem;
+        font-style: italic;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.02);
+    }
+    
     /* Sidebar styling - Jobs/Ive aesthetic */
     .sidebar .sidebar-content {
         background: linear-gradient(180deg, #FBFBFD 0%, #F5F5F7 100%);
@@ -211,104 +330,164 @@ st.markdown(
 )
 
 
+def initialize_enhanced_session():
+    """Initialize session state with agent functionality."""
+    initialize_session_state()
+    
+    if "agent_steps" not in st.session_state:
+        st.session_state.agent_steps = []
+    
+    if "agent_mode" not in st.session_state:
+        st.session_state.agent_mode = False
+    
+    if "show_agent_steps" not in st.session_state:
+        st.session_state.show_agent_steps = True
+    
+    # Initialize agent after we have the current model
+    if "agent" not in st.session_state:
+        try:
+            model = st.session_state.get("current_model", DEFAULT_MODEL)
+            st.session_state.agent = ReactAgent(model)
+        except Exception as e:
+            st.error(f"Failed to initialize agent: {e}")
+            # Create a fallback agent
+            st.session_state.agent = None
+
+
 def render_sidebar() -> Dict[str, Any]:
     """Render the sidebar with model selection and parameters."""
-    with st.sidebar:
-        st.title(f"{APP_ICON} {APP_TITLE}")
-        
-        # Ollama service health check
-        ollama_service = OllamaService()
-        if not ollama_service.health_check():
-            st.error("❌ Ollama service is not running")
-            st.info("Please start Ollama: `ollama serve`")
-            return {}
-        
-        st.success("✅ Ollama is running")
-        
-        # Model selection
-        st.subheader("🤖 Model")
-        available_models = ollama_service.get_available_models()
-        
-        if not available_models:
-            st.error("No models available. Please install a model:")
-            st.code(f"ollama pull {DEFAULT_MODEL}")
-            return {}
-        
-        current_model = st.selectbox(
-            "Language Model",
-            options=available_models,
-            index=available_models.index(st.session_state.current_model) 
-                  if st.session_state.current_model in available_models 
-                  else 0,
-            help="Select the language model to use for conversations"
-        )
-        
-        st.session_state.current_model = current_model
-        
-        # Model parameters
-        st.subheader("⚙️ Parameters")
-        
-        params = {}
-        for param_name, param_config in MODEL_PARAMS.items():
-            params[param_name] = st.slider(
-                label=param_name.replace('_', ' ').title(),
-                min_value=param_config["min"],
-                max_value=param_config["max"],
-                value=st.session_state.model_params.get(param_name, param_config["default"]),
-                step=param_config["step"],
-                help=param_config["help"]
-            )
-        
-        st.session_state.model_params = params
-        
-        # Display settings
-        st.subheader("📊 Metrics")
-        show_detailed_metrics = st.checkbox(
-            "Show detailed metrics",
-            value=st.session_state.get("show_detailed_metrics", SHOW_DETAILED_METRICS),
-            help="Show comprehensive performance metrics including timing breakdowns and throughput analysis"
-        )
-        st.session_state.show_detailed_metrics = show_detailed_metrics
-        
-        # Session management
-        st.subheader("💾 Session")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🗑️ Clear Chat", use_container_width=True):
-                clear_chat_history()
-                st.rerun()
-        
-        with col2:
-            if st.button("📥 Export", use_container_width=True):
-                if st.session_state.messages:
-                    export_text = export_chat_history()
-                    st.download_button(
-                        label="Download Chat",
-                        data=export_text,
-                        file_name=f"chat_export_{int(time.time())}.txt",
-                        mime="text/plain"
-                    )
-        
-        # Chat statistics
-        if st.session_state.messages:
-            st.subheader("📊 Statistics")
-            total_messages = len(st.session_state.messages)
-            user_messages = len([m for m in st.session_state.messages if m["role"] == "user"])
-            assistant_messages = total_messages - user_messages
+    try:
+        with st.sidebar:
+            st.title(f"{APP_ICON} {APP_TITLE}")
             
-            st.metric("Total Messages", total_messages)
+            # Ollama service health check
+            ollama_service = OllamaService()
+            if not ollama_service.health_check():
+                st.error("❌ Ollama service is not running")
+                st.info("Please start Ollama: `ollama serve`")
+                return {}
+            
+            st.success("✅ Ollama is running")
+            
+            # Model selection
+            st.subheader("🤖 Model")
+            available_models = ollama_service.get_available_models()
+            
+            if not available_models:
+                st.error("No models available. Please install a model:")
+                st.code(f"ollama pull {DEFAULT_MODEL}")
+                return {}
+            
+            current_model = st.selectbox(
+                "Language Model",
+                options=available_models,
+                index=available_models.index(st.session_state.current_model) 
+                      if st.session_state.current_model in available_models 
+                      else 0,
+                help="Select the language model to use for conversations"
+            )
+            
+            # Update agent if model changed
+            if current_model != st.session_state.current_model:
+                st.session_state.current_model = current_model
+                st.session_state.agent = ReactAgent(current_model)
+            
+            # Agent mode toggle
+            st.subheader("🧠 Mode")
+            agent_mode = st.radio(
+                "Chat Mode",
+                options=["Normal Chat", "Agent Mode"],
+                index=1 if st.session_state.agent_mode else 0,
+                help="Normal: Direct chat | Agent: Shows reasoning and can use tools"
+            )
+            st.session_state.agent_mode = (agent_mode == "Agent Mode")
+            
+            if st.session_state.agent_mode:
+                # Show available tools
+                with st.expander("🛠️ Available Tools"):
+                    if st.session_state.agent and hasattr(st.session_state.agent, 'tools'):
+                        for tool_name, tool in st.session_state.agent.tools.items():
+                            st.write(f"📡 **{tool_name}**: {tool.description[:80]}...")
+                    else:
+                        st.write("⚠️ Agent not properly initialized")
+                
+                # Agent steps visibility toggle  
+                st.session_state.show_agent_steps = st.checkbox(
+                    "💭 Show thinking process",
+                    value=st.session_state.show_agent_steps,
+                    help="Toggle visibility of the agent's step-by-step reasoning and tool usage"
+                )
+            
+            # Model parameters
+            st.subheader("⚙️ Parameters")
+            
+            params = {}
+            for param_name, param_config in MODEL_PARAMS.items():
+                params[param_name] = st.slider(
+                    label=param_name.replace('_', ' ').title(),
+                    min_value=param_config["min"],
+                    max_value=param_config["max"],
+                    value=st.session_state.model_params.get(param_name, param_config["default"]),
+                    step=param_config["step"],
+                    help=param_config["help"]
+                )
+            
+            st.session_state.model_params = params
+            
+            # Display settings
+            st.subheader("📊 Metrics")
+            show_detailed_metrics = st.checkbox(
+                "Show detailed metrics",
+                value=st.session_state.get("show_detailed_metrics", SHOW_DETAILED_METRICS),
+                help="Show comprehensive performance metrics including timing breakdowns and throughput analysis"
+            )
+            st.session_state.show_detailed_metrics = show_detailed_metrics
+            
+            # Session management
+            st.subheader("💾 Session")
+            
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("User", user_messages)
+                if st.button("🗑️ Clear Chat", use_container_width=True):
+                    clear_chat_history()
+                    st.session_state.agent_steps = []
+                    st.rerun()
+            
             with col2:
-                st.metric("Assistant", assistant_messages)
+                if st.button("📥 Export", use_container_width=True):
+                    if st.session_state.messages:
+                        export_text = export_chat_history()
+                        st.download_button(
+                            label="Download Chat",
+                            data=export_text,
+                            file_name=f"chat_export_{int(time.time())}.txt",
+                            mime="text/plain"
+                        )
+            
+            # Chat statistics
+            if st.session_state.messages:
+                st.subheader("📊 Statistics")
+                total_messages = len(st.session_state.messages)
+                user_messages = len([m for m in st.session_state.messages if m["role"] == "user"])
+                assistant_messages = total_messages - user_messages
+                
+                st.metric("Total Messages", total_messages)
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("User", user_messages)
+                with col2:
+                    st.metric("Assistant", assistant_messages)
         
-        return {
-            "model": current_model,
-            "params": params,
-            "ollama_service": ollama_service
-        }
+            return {
+                "model": current_model,
+                "params": params,
+                "ollama_service": ollama_service,
+                "agent_mode": st.session_state.agent_mode
+            }
+    
+    except Exception as e:
+        st.error(f"Sidebar error: {e}")
+        return {}
 
 
 def render_chat_message(message: Dict[str, Any]):
@@ -352,10 +531,82 @@ def render_chat_message(message: Dict[str, Any]):
                 """, unsafe_allow_html=True)
 
 
+def render_agent_step_with_state(step: AgentStep, state: str = ""):
+    """Render a single agent step with state-aware styling."""
+    step_config = {
+        StepType.THOUGHT: {
+            "label": "Think",
+            "class": "step-thought"
+        },
+        StepType.TOOL_SELECTION: {
+            "label": "Select",
+            "class": "step-tool-selection"
+        },
+        StepType.TOOL_USE: {
+            "label": "Use",
+            "class": "step-tool-use"
+        },
+        StepType.TOOL_RESULT: {
+            "label": "Result",
+            "class": "step-tool-result"
+        },
+        StepType.FINAL_ANSWER: {
+            "label": "Answer",
+            "class": "step-final-answer"
+        },
+        StepType.ERROR: {
+            "label": "Error",
+            "class": "step-error"
+        }
+    }
+    
+    config = step_config.get(step.step_type, {
+        "label": "Info",
+        "class": "step-thought"
+    })
+    
+    # Format metadata if available
+    metadata_text = ""
+    if step.metadata:
+        metadata_parts = []
+        for key, value in step.metadata.items():
+            if key not in ["status"]:  # Skip internal status
+                if key == "search_time_ms":
+                    metadata_parts.append(f"{value}ms")
+                elif key == "total_results":
+                    metadata_parts.append(f"{value} results")
+                elif key == "provider":
+                    metadata_parts.append(f"{value}")
+                elif key == "tool":
+                    metadata_parts.append(f"{value}")
+                else:
+                    metadata_parts.append(f"{key}: {value}")
+        
+        if metadata_parts:
+            metadata_text = f"<div class='step-metadata'>{' • '.join(metadata_parts)}</div>"
+    
+    # Add state class for styling
+    state_class = f" {state}" if state else ""
+    
+    # Render the step with minimal design and state
+    st.markdown(f"""
+    <div class="thinking-step {config['class']}{state_class} agent-step-stream">
+        <span class="step-label">{config['label']}</span>
+        <span class="step-content">{step.content}</span>
+    </div>
+    {metadata_text}
+    """, unsafe_allow_html=True)
+
+
+def render_agent_step(step: AgentStep):
+    """Render a single agent step with ultra-minimalist design (legacy support)."""
+    render_agent_step_with_state(step, "")
+
+
 def main():
     """Main application logic."""
-    # Initialize session state
-    initialize_session_state()
+    # Initialize enhanced session state
+    initialize_enhanced_session()
     
     # Render sidebar and get configuration
     config = render_sidebar()
@@ -364,17 +615,54 @@ def main():
         st.error("Please ensure Ollama is running and models are available.")
         st.stop()
     
-    # Main chat interface
-    st.title("💬 Chat")
+    # Main chat interface with mode indicator
+    if config["agent_mode"]:
+        st.title("🤖 Agent Chat")
+        st.markdown("*Watch the AI reason step by step and use tools when needed*")
+    else:
+        st.title("💬 Chat")
+        st.markdown("*Direct conversation with the AI*")
     
-    # Display chat messages
+    # Display chat messages and agent steps
     chat_container = st.container()
     with chat_container:
-        for message in st.session_state.messages:
-            render_chat_message(message)
+        if config["agent_mode"]:
+            # In agent mode, show messages and optionally steps
+            all_items = []
+            
+            # Add regular messages
+            for msg in st.session_state.messages:
+                all_items.append(("message", msg))
+            
+            # Add agent steps only if toggle is enabled
+            if st.session_state.show_agent_steps:
+                for step in st.session_state.agent_steps:
+                    all_items.append(("step", step))
+            elif st.session_state.agent_steps:
+                # Show a subtle message when steps are hidden but exist
+                st.markdown("""
+                <div class="steps-hidden-message">
+                    💭 Agent reasoning steps are hidden • Toggle "Show reasoning steps" in sidebar to view
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Sort by timestamp
+            all_items.sort(key=lambda x: x[1].get("timestamp", 0) if x[0] == "message" else x[1].timestamp)
+            
+            # Render items
+            for item_type, item in all_items:
+                if item_type == "message":
+                    render_chat_message(item)
+                elif item_type == "step":
+                    render_agent_step(item)
+        else:
+            # Normal mode - just show messages
+            for message in st.session_state.messages:
+                render_chat_message(message)
     
-    # Chat input
-    if prompt := st.chat_input("Type your message here...", key="chat_input"):
+    # Chat input with dynamic placeholder
+    placeholder = "Ask me anything... I can search the web if needed!" if config["agent_mode"] else "Type your message here..."
+    if prompt := st.chat_input(placeholder, key="chat_input"):
         # Add user message
         add_message("user", prompt)
         
@@ -382,58 +670,136 @@ def main():
         with chat_container:
             render_chat_message(st.session_state.messages[-1])
         
-        # Generate assistant response
-        with st.spinner("Thinking..."):
-            # Prepare messages for API
-            api_messages = [
-                {"role": msg["role"], "content": msg["content"]} 
-                for msg in st.session_state.messages
-            ]
-            
-            # Stream response
-            response_placeholder = st.empty()
-            full_response = ""
-            final_metadata = {}
+        if config["agent_mode"]:
+            # Agent mode - show reasoning process
+            if not st.session_state.agent:
+                st.error("Agent not initialized. Please check the configuration.")
+                return
+                
+            # Agent thinking with real-time streaming
+            agent_steps = []
+            thinking_placeholder = st.empty()
             
             try:
-                for chunk in config["ollama_service"].chat_stream(
-                    model=config["model"],
-                    messages=api_messages,
+                # Show thinking indicator
+                with thinking_placeholder.container():
+                    st.markdown("""
+                    <div class="thinking-indicator">
+                        <span>Agent is thinking</span>
+                        <span class="thinking-dots"></span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Stream agent steps in real-time
+                for step in st.session_state.agent.process_query_stream(
+                    prompt,
                     **config["params"]
                 ):
-                    if "error" in chunk:
-                        st.error(f"Error: {chunk['error']}")
-                        break
+                    agent_steps.append(step)
                     
-                    full_response = chunk.get("full_response", "")
-                    final_metadata = chunk.get("metadata", {})
+                    # Clear thinking indicator and show all steps
+                    with thinking_placeholder.container():
+                        st.markdown('<div class="agent-thinking">', unsafe_allow_html=True)
+                        for i, s in enumerate(agent_steps):
+                            # Mark the current step and completed steps
+                            if i == len(agent_steps) - 1:
+                                # This is the current step
+                                render_agent_step_with_state(s, "current")
+                            else:
+                                # This is a completed step
+                                render_agent_step_with_state(s, "completed")
+                        st.markdown('</div>', unsafe_allow_html=True)
                     
-                    # Update the response in real-time
-                    with response_placeholder.container():
-                        current_time = format_timestamp(time.time(), "time")
-                        st.markdown(f"""
-                        <div class="timestamp">
-                            {current_time}
-                        </div>
-                        <div class="chat-message assistant-message">
-                            {full_response}
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    if chunk.get("done"):
+                    # Small delay for better visual effect
+                    time.sleep(0.1)
+                
+                # Store all steps at once
+                st.session_state.agent_steps.extend(agent_steps)
+                
+                # Extract final answer for chat history
+                final_answer = None
+                final_metadata = {}
+                for step in reversed(agent_steps):
+                    if step.step_type == StepType.FINAL_ANSWER:
+                        final_answer = step.content
+                        if step.metadata:
+                            final_metadata = step.metadata
                         break
                 
-                # Add final response to chat history
-                if full_response:
-                    add_message("assistant", full_response, final_metadata)
+                if final_answer:
+                    # Add agent response to chat history with enhanced metadata
+                    total_time = final_metadata.get("total_time_ms", 0)
+                    add_message("assistant", final_answer, {
+                        "agent_steps": len(agent_steps),
+                        "total_time_ms": total_time,
+                        "agent_mode": True
+                    })
                     
-                    # Clear the placeholder and show final message with metrics
-                    response_placeholder.empty()
+                    # Clear the thinking placeholder
+                    thinking_placeholder.empty()
+                    
+                    # Show completion message
                     with chat_container:
                         render_chat_message(st.session_state.messages[-1])
                 
             except Exception as e:
-                st.error(f"An error occurred: {e}")
+                st.error(f"Agent processing failed: {e}")
+                # Fall back to normal chat mode
+                st.session_state.agent_mode = False
+        
+        else:
+            # Normal mode - direct chat
+            with st.spinner("Thinking..."):
+                # Prepare messages for API
+                api_messages = [
+                    {"role": msg["role"], "content": msg["content"]} 
+                    for msg in st.session_state.messages
+                ]
+                
+                # Stream response
+                response_placeholder = st.empty()
+                full_response = ""
+                final_metadata = {}
+                
+                try:
+                    for chunk in config["ollama_service"].chat_stream(
+                        model=config["model"],
+                        messages=api_messages,
+                        **config["params"]
+                    ):
+                        if "error" in chunk:
+                            st.error(f"Error: {chunk['error']}")
+                            break
+                        
+                        full_response = chunk.get("full_response", "")
+                        final_metadata = chunk.get("metadata", {})
+                        
+                        # Update the response in real-time
+                        with response_placeholder.container():
+                            current_time = format_timestamp(time.time(), "time")
+                            st.markdown(f"""
+                            <div class="timestamp">
+                                {current_time}
+                            </div>
+                            <div class="chat-message assistant-message">
+                                {full_response}
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
+                        if chunk.get("done"):
+                            break
+                    
+                    # Add final response to chat history
+                    if full_response:
+                        add_message("assistant", full_response, final_metadata)
+                        
+                        # Clear the placeholder and show final message with metrics
+                        response_placeholder.empty()
+                        with chat_container:
+                            render_chat_message(st.session_state.messages[-1])
+                    
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
 
 
 if __name__ == "__main__":
