@@ -71,12 +71,12 @@ def calculate_tokens_per_second(token_count: int, duration_ns: int) -> str:
 
 
 def format_metrics(metadata: Dict[str, Any], detailed: bool = True) -> str:
-    """Format technical metrics for display with proper terminology."""
+    """Format comprehensive technical metrics with refined visual presentation."""
     if not metadata:
         return ""
     
     if not detailed:
-        # Simple technical metrics display
+        # Simple but complete technical metrics
         simple_metrics = []
         
         if "latency_ms" in metadata:
@@ -93,41 +93,40 @@ def format_metrics(metadata: Dict[str, Any], detailed: bool = True) -> str:
         
         return " • ".join(simple_metrics)
     
-    # Detailed technical metrics display
+    # Detailed technical metrics with elegant organization
     metrics_lines = []
     
-    # Model and latency
-    basic_info = []
+    # Primary metrics line
+    primary = []
     if "model" in metadata:
-        basic_info.append(f"🤖 {metadata['model']}")
+        primary.append(f"🤖 {metadata['model']}")
     
     if "latency_ms" in metadata:
-        basic_info.append(f"⏱️ {metadata['latency_ms']}ms latency")
+        primary.append(f"⏱️ {metadata['latency_ms']}ms latency")
     
-    if basic_info:
-        metrics_lines.append(" • ".join(basic_info))
+    if primary:
+        metrics_lines.append(" • ".join(primary))
     
-    # Token counts and throughput
+    # Token analysis with throughput
     prompt_tokens = metadata.get('prompt_eval_count', 0)
     output_tokens = metadata.get('eval_count', 0)
     
     if prompt_tokens > 0 or output_tokens > 0:
         total_tokens = prompt_tokens + output_tokens
-        # prompt_eval_count includes full context (conversation history + system prompts + current input)
-        token_info = f"🔢 {total_tokens} tokens (context: {prompt_tokens}, generated: {output_tokens})"
+        token_line = f"🔢 {total_tokens} tokens (context: {prompt_tokens}, generated: {output_tokens})"
         
-        # Add token generation throughput
+        # Add throughput calculation
         eval_duration = metadata.get('eval_duration', 0)
         if eval_duration > 0 and output_tokens > 0:
             tokens_per_second = output_tokens / (eval_duration / 1_000_000_000)
             if tokens_per_second >= 1000:
-                token_info += f" @ {tokens_per_second/1000:.1f}k tok/s"
+                token_line += f" @ {tokens_per_second/1000:.1f}k tok/s"
             else:
-                token_info += f" @ {tokens_per_second:.1f} tok/s"
+                token_line += f" @ {tokens_per_second:.1f} tok/s"
         
-        metrics_lines.append(token_info)
+        metrics_lines.append(token_line)
     
-    # Duration breakdown
+    # Comprehensive timing breakdown
     timing_parts = []
     
     total_duration = metadata.get('total_duration', 0)
@@ -149,7 +148,7 @@ def format_metrics(metadata: Dict[str, Any], detailed: bool = True) -> str:
     if timing_parts:
         metrics_lines.append("⏳ " + " • ".join(timing_parts))
     
-    # Done reason
+    # Completion status
     done_reason = metadata.get('done_reason', '')
     if done_reason and done_reason != '':
         metrics_lines.append(f"✅ done_reason: {done_reason}")

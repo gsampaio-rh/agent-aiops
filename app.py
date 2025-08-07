@@ -28,85 +28,177 @@ st.set_page_config(
 )
 
 # Custom CSS for Apple-inspired design
-st.markdown("""
+st.markdown(
+    """
 <style>
-    /* Main container styling */
+    /* Main container styling - Premium feel */
     .main .block-container {
         padding-top: 2rem;
         max-width: 900px;
+        background: radial-gradient(ellipse at top, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
     }
     
-    /* Chat message styling */
+    /* Chat area background */
+    .main {
+        background: linear-gradient(180deg, #FAFAFA 0%, #F5F5F7 100%);
+    }
+    
+    /* Floating input container - seamless integration */
+    .stChatFloatingInputContainer {
+        background: transparent;
+    }
+    
+    /* Make the floating container blend better */
+    .stChatFloatingInputContainer::before {
+        content: '';
+        position: absolute;
+        top: -20px;
+        left: 0;
+        right: 0;
+        height: 20px;
+        pointer-events: none;
+    }
+    
+    /* Chat message styling - Jobs/Ive inspired */
     .chat-message {
-        padding: 1rem 1.5rem;
-        margin: 0.5rem 0;
-        border-radius: 18px;
-        max-width: 80%;
+        padding: 1.25rem 1.75rem;
+        margin: 1rem 0;
+        border-radius: 22px;
+        max-width: 75%;
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
-        line-height: 1.4;
+        line-height: 1.47;
+        font-size: 1.05rem;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        backdrop-filter: blur(20px);
+        transition: all 0.2s ease;
+    }
+    
+    .chat-message:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
     }
     
     .user-message {
-        background: #007AFF;
+        background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
         color: white;
         margin-left: auto;
         text-align: right;
+        margin-bottom: 1.5rem;
     }
     
     .assistant-message {
-        background: #F2F2F7;
-        color: #000000;
+        background: rgba(248, 249, 250, 0.9);
+        color: #1D1D1F;
         margin-right: auto;
+        border: 1px solid rgba(0, 0, 0, 0.06);
     }
     
-    /* Metrics styling */
+    /* Metrics styling - Minimalist approach */
     .metrics {
-        font-size: 0.75rem;
-        color: #8E8E93;
-        margin-top: 0.5rem;
-        margin-bottom: 0.25rem;
-        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-        line-height: 1.3;
-        max-width: 80%;
-    }
-    
-    /* Timestamp styling */
-    .timestamp {
         font-size: 0.7rem;
-        color: #8E8E93;
-        margin-top: 0.25rem;
-        margin-bottom: 0.25rem;
+        color: #98989D;
+        margin-top: 0.75rem;
+        margin-bottom: 0.5rem;
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+        line-height: 1.2;
+        max-width: 75%;
+        font-weight: 400;
+        letter-spacing: 0.2px;
         opacity: 0.8;
+        transition: opacity 0.2s ease;
     }
     
-    /* Sidebar styling */
+    .metrics:hover {
+        opacity: 1;
+    }
+    
+    /* Timestamp styling - More subtle */
+    .timestamp {
+        font-size: 0.65rem;
+        color: #98989D;
+        margin-top: 0.5rem;
+        margin-bottom: 0.75rem;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+        opacity: 0.6;
+        font-weight: 400;
+        letter-spacing: 0.3px;
+        transition: opacity 0.2s ease;
+    }
+    
+    .timestamp:hover {
+        opacity: 0.9;
+    }
+    
+    /* Sidebar styling - Jobs/Ive aesthetic */
     .sidebar .sidebar-content {
-        background: #F8F9FA;
+        background: linear-gradient(180deg, #FBFBFD 0%, #F5F5F7 100%);
+        border-right: 1px solid rgba(0, 0, 0, 0.05);
     }
     
-    /* Input styling */
-    .stTextInput > div > div > input {
-        border-radius: 20px;
-        border: 1px solid #D1D5DB;
-        padding: 0.75rem 1rem;
-        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+    /* Clean sidebar sections */
+    .sidebar h3 {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #1D1D1F;
+        margin-bottom: 0.75rem;
+        margin-top: 1.5rem;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
     }
     
-    /* Button styling */
-    .stButton > button {
-        border-radius: 12px;
-        border: none;
-        background: #007AFF;
-        color: white;
+    .sidebar .stSelectbox label,
+    .sidebar .stSlider label,
+    .sidebar .stCheckbox label {
+        font-size: 0.85rem;
         font-weight: 500;
-        padding: 0.5rem 1rem;
+        color: #424245;
+    }
+    
+    /* Input styling - More refined */
+    .stTextInput > div > div > input,
+    .stChatInput > div > div > input {
+        border-radius: 24px;
+        border: 1.5px solid rgba(0, 0, 0, 0.08);
+        padding: 1rem 1.5rem;
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+        font-size: 1rem;
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(20px);
+        transition: all 0.2s ease;
+    }
+    
+    .stTextInput > div > div > input:focus,
+    .stChatInput > div > div > input:focus {
+        border-color: #007AFF;
+        box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+        outline: none;
+    }
+    
+    /* Button styling - More premium */
+    .stButton > button {
+        border-radius: 14px;
+        border: none;
+        background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+        color: white;
+        font-weight: 600;
+        padding: 0.75rem 1.25rem;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+        font-size: 0.9rem;
+        letter-spacing: 0.2px;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 8px rgba(0, 122, 255, 0.15);
     }
     
     .stButton > button:hover {
-        background: #0056CC;
+        background: linear-gradient(135deg, #0056CC 0%, #4339B8 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 16px rgba(0, 122, 255, 0.25);
         border: none;
+    }
+    
+    .stButton > button:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 8px rgba(0, 122, 255, 0.15);
     }
     
     /* Hide Streamlit branding */
@@ -114,7 +206,9 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 def render_sidebar() -> Dict[str, Any]:
@@ -132,7 +226,7 @@ def render_sidebar() -> Dict[str, Any]:
         st.success("✅ Ollama is running")
         
         # Model selection
-        st.subheader("🤖 Model Selection")
+        st.subheader("🤖 Model")
         available_models = ollama_service.get_available_models()
         
         if not available_models:
@@ -141,7 +235,7 @@ def render_sidebar() -> Dict[str, Any]:
             return {}
         
         current_model = st.selectbox(
-            "Choose Model",
+            "Language Model",
             options=available_models,
             index=available_models.index(st.session_state.current_model) 
                   if st.session_state.current_model in available_models 
@@ -168,11 +262,11 @@ def render_sidebar() -> Dict[str, Any]:
         st.session_state.model_params = params
         
         # Display settings
-        st.subheader("📊 Display")
+        st.subheader("📊 Metrics")
         show_detailed_metrics = st.checkbox(
             "Show detailed metrics",
             value=st.session_state.get("show_detailed_metrics", SHOW_DETAILED_METRICS),
-            help="Show comprehensive performance metrics including token counts, duration breakdowns, and throughput"
+            help="Show comprehensive performance metrics including timing breakdowns and throughput analysis"
         )
         st.session_state.show_detailed_metrics = show_detailed_metrics
         
