@@ -58,7 +58,7 @@ class WebSearchService:
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         })
-        self.timeout = 15
+        self.timeout = 10  # Shorter timeout to prevent hanging
         
         self.providers = {
             "duckduckgo": {
@@ -140,11 +140,84 @@ class WebSearchService:
             }
     
     def _search_duckduckgo(self, query: str, max_results: int, **kwargs) -> List[SearchResult]:
-        """Search using DuckDuckGo Instant Answer API."""
+        """Search using DuckDuckGo HTML scraping for real search results."""
         results = []
         
         try:
-            # DuckDuckGo Instant Answer API
+            # Use DuckDuckGo HTML search (not the limited Instant Answer API)
+            url = "https://html.duckduckgo.com/html/"
+            params = {"q": query}
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Connection": "keep-alive",
+            }
+            
+            response = self.session.get(url, params=params, headers=headers, timeout=self.timeout)
+            response.raise_for_status()
+            
+            # Parse HTML content with BeautifulSoup
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Find search result containers
+            result_divs = soup.find_all('div', class_='result')
+            
+            for i, result_div in enumerate(result_divs[:max_results]):
+                try:
+                    # Extract title and URL
+                    title_link = result_div.find('a', class_='result__a')
+                    if not title_link:
+                        continue
+                        
+                    title = title_link.get_text(strip=True)
+                    url = title_link.get('href', '')
+                    
+                    # Extract snippet/description
+                    snippet_elem = result_div.find('a', class_='result__snippet')
+                    snippet = ""
+                    if snippet_elem:
+                        snippet = snippet_elem.get_text(strip=True)
+                    
+                    # If no snippet found, try other selectors
+                    if not snippet:
+                        snippet_elem = result_div.find('div', class_='result__snippet')
+                        if snippet_elem:
+                            snippet = snippet_elem.get_text(strip=True)
+                    
+                    if not snippet:
+                        snippet = f"Search result {i+1} for '{query}'"
+                    
+                    if title and url:
+                        results.append(SearchResult(
+                            title=title[:150] + "..." if len(title) > 150 else title,
+                            url=url,
+                            snippet=snippet[:400] + "..." if len(snippet) > 400 else snippet,
+                            source="DuckDuckGo",
+                            metadata={"type": "web_result", "position": i+1}
+                        ))
+                        
+                except Exception as e:
+                    continue  # Skip this result if there's an error parsing it
+            
+            # If HTML scraping failed, try the Instant Answer API as fallback
+            if not results:
+                results = self._search_duckduckgo_instant_api(query, max_results)
+            
+            return results[:max_results]
+            
+        except Exception as e:
+            print(f"DuckDuckGo HTML search error: {e}")
+            # Fallback to Instant Answer API
+            return self._search_duckduckgo_instant_api(query, max_results)
+    
+    def _search_duckduckgo_instant_api(self, query: str, max_results: int) -> List[SearchResult]:
+        """Fallback using DuckDuckGo Instant Answer API."""
+        results = []
+        
+        try:
             url = "https://api.duckduckgo.com/"
             params = {
                 "q": query,
@@ -192,37 +265,21 @@ class WebSearchService:
                         metadata={"type": "related_topic"}
                     ))
             
-            # Add definition if available
-            if data.get("Definition"):
-                results.append(SearchResult(
-                    title="Definition",
-                    url=data.get("DefinitionURL", ""),
-                    snippet=data.get("Definition", ""),
-                    source="DuckDuckGo Definition",
-                    metadata={"type": "definition"}
-                ))
-            
-            # If no structured results, add search link
-            if not results:
-                results.append(SearchResult(
-                    title=f"Search for '{query}' on DuckDuckGo",
-                    url=f"https://duckduckgo.com/?q={quote_plus(query)}",
-                    snippet=f"No instant answers found. Click to search '{query}' on DuckDuckGo.",
-                    source="DuckDuckGo Search",
-                    metadata={"type": "search_link"}
-                ))
-            
-            return results[:max_results]
-            
         except Exception as e:
-            # Return fallback result
-            return [SearchResult(
-                title="Search Error",
-                url=f"https://duckduckgo.com/?q={quote_plus(query)}",
-                snippet=f"Error searching DuckDuckGo: {str(e)}. Click to search manually.",
-                source="DuckDuckGo Error",
-                metadata={"type": "error", "error": str(e)}
-            )]
+            print(f"DuckDuckGo Instant API error: {e}")
+        
+        # Final fallback: create a helpful result
+        if not results:
+            search_url = f"https://duckduckgo.com/?q={quote_plus(query)}"
+            results.append(SearchResult(
+                title=f"Search '{query}' on DuckDuckGo",
+                url=search_url,
+                snippet=f"Use this link to search manually: {search_url}",
+                source="DuckDuckGo Manual",
+                metadata={"type": "manual_search"}
+            ))
+        
+        return results
     
     def _search_searx(self, query: str, max_results: int, **kwargs) -> List[SearchResult]:
         """Search using SearX public instance."""

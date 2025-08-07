@@ -343,6 +343,9 @@ def initialize_enhanced_session():
     if "show_agent_steps" not in st.session_state:
         st.session_state.show_agent_steps = True
     
+    if "agent_processing" not in st.session_state:
+        st.session_state.agent_processing = False
+    
     # Initialize agent after we have the current model
     if "agent" not in st.session_state:
         try:
@@ -634,11 +637,11 @@ def main():
             for msg in st.session_state.messages:
                 all_items.append(("message", msg))
             
-            # Add agent steps only if toggle is enabled
-            if st.session_state.show_agent_steps:
+            # Add agent steps only if toggle is enabled and not currently processing
+            if st.session_state.show_agent_steps and not st.session_state.agent_processing:
                 for step in st.session_state.agent_steps:
                     all_items.append(("step", step))
-            elif st.session_state.agent_steps:
+            elif st.session_state.agent_steps and not st.session_state.agent_processing:
                 # Show a subtle message when steps are hidden but exist
                 st.markdown("""
                 <div class="steps-hidden-message">
@@ -680,6 +683,9 @@ def main():
             agent_steps = []
             thinking_placeholder = st.empty()
             
+            # Set processing flag to avoid duplicate display
+            st.session_state.agent_processing = True
+            
             try:
                 # Show thinking indicator
                 with thinking_placeholder.container():
@@ -713,7 +719,7 @@ def main():
                     # Small delay for better visual effect
                     time.sleep(0.1)
                 
-                # Store all steps at once
+                # Store all steps at once ONLY after completion
                 st.session_state.agent_steps.extend(agent_steps)
                 
                 # Extract final answer for chat history
@@ -738,12 +744,17 @@ def main():
                     # Clear the thinking placeholder
                     thinking_placeholder.empty()
                     
-                    # Show completion message
+                    # Clear processing flag  
+                    st.session_state.agent_processing = False
+                    
+                    # Show the final message immediately without rerun
                     with chat_container:
                         render_chat_message(st.session_state.messages[-1])
                 
             except Exception as e:
                 st.error(f"Agent processing failed: {e}")
+                # Clear processing flag on error
+                st.session_state.agent_processing = False
                 # Fall back to normal chat mode
                 st.session_state.agent_mode = False
         

@@ -78,7 +78,11 @@ class WebSearchTool(AgentTool):
         max_results = kwargs.get("max_results", 5)
         
         try:
-            result = self.search_service.search(
+            # Import here to avoid circular imports and ensure fresh instance
+            from services.search_service import WebSearchService
+            search_service = WebSearchService()
+            
+            result = search_service.search(
                 query=query,
                 provider=provider,
                 max_results=max_results
@@ -137,25 +141,26 @@ When responding to a user query, follow this pattern:
 1. THOUGHT: Think about what the user is asking and whether you need to use a tool
 2. TOOL_SELECTION: If you need a tool, decide which one and why
 3. TOOL_USE: Use the tool with appropriate parameters
-4. TOOL_RESULT: Analyze the tool results
-5. FINAL_ANSWER: Provide a comprehensive answer to the user
 
-For each step, be explicit about your reasoning. Use the format:
-THOUGHT: [your reasoning]
-TOOL_SELECTION: [if needed, which tool and why]
-TOOL_USE: [tool_name: simple search query]
-TOOL_RESULT: [analysis of results]
-FINAL_ANSWER: [your final response]
-
-IMPORTANT: When using web_search, use simple, clear search terms. For example:
-- Good: "Brazil facts"
-- Good: "Python tutorial"
-- Bad: "Brazil facts" OR "Brazil overview"
-- Bad: (complex query with operators)
+If you use a tool, STOP after TOOL_USE. Do not provide TOOL_RESULT or FINAL_ANSWER - these will be generated after the tool execution.
 
 If you don't need any tools, you can go directly to FINAL_ANSWER after THOUGHT.
 
-Be conversational and helpful in your final answer, incorporating any tool results naturally."""
+Use the format:
+THOUGHT: [your reasoning]
+TOOL_SELECTION: [if needed, which tool and why]  
+TOOL_USE: [tool_name: simple search query]
+OR
+THOUGHT: [your reasoning]
+FINAL_ANSWER: [direct answer if no tools needed]
+
+IMPORTANT: When using web_search, use simple, clear search terms. For example:
+- Good: "Brazil facts"
+- Good: "Python tutorial"  
+- Bad: "Brazil facts" OR "Brazil overview"
+- Bad: (complex query with operators)
+
+Be conversational and helpful in your reasoning."""
     
     def register_tool(self, tool: AgentTool):
         """Register a new tool."""
@@ -222,7 +227,7 @@ Be conversational and helpful in your final answer, incorporating any tool resul
         
         return steps
     
-    def execute_tool(self, tool_name: str, query: str) -> Dict[str, Any]:
+    def execute_tool(self, tool_name: str, query: str, **kwargs) -> Dict[str, Any]:
         """Execute a specific tool."""
         if tool_name not in self.tools:
             return {
@@ -232,7 +237,7 @@ Be conversational and helpful in your final answer, incorporating any tool resul
             }
         
         tool = self.tools[tool_name]
-        return tool.execute(query)
+        return tool.execute(query, **kwargs)
     
     def process_query_stream(self, user_query: str, **kwargs) -> Iterator[AgentStep]:
         """Process user query and yield steps as they happen."""
@@ -271,8 +276,15 @@ Be conversational and helpful in your final answer, incorporating any tool resul
             # Parse the response into steps
             parsed_steps = self.parse_agent_response(full_response)
             
+            # Track if we've already yielded a final answer
+            has_final_answer = any(step.step_type == StepType.FINAL_ANSWER for step in parsed_steps)
+            
             # Yield each step and execute tools if needed
             for step in parsed_steps:
+                # Skip FINAL_ANSWER from initial response if we have tools to execute
+                if step.step_type == StepType.FINAL_ANSWER and any(s.step_type == StepType.TOOL_USE for s in parsed_steps):
+                    continue
+                    
                 yield step
                 
                 # If this is a tool use step, execute the tool
@@ -289,15 +301,32 @@ Be conversational and helpful in your final answer, incorporating any tool resul
                         if tool_query.startswith('(') and tool_query.endswith(')'):
                             tool_query = tool_query[1:-1]
                         
-                        # Execute the tool
+                        # Execute the tool with unique ID to prevent duplicates
+                        import uuid
+                        execution_id = str(uuid.uuid4())[:8]
+                        
                         yield AgentStep(
                             step_type=StepType.TOOL_USE,
                             content=f"Executing {tool_name} with query: {tool_query}",
                             timestamp=time.time(),
-                            metadata={"tool": tool_name, "query": tool_query, "status": "executing"}
+                            metadata={"tool": tool_name, "query": tool_query, "status": "executing", "execution_id": execution_id}
                         )
                         
                         tool_result = self.execute_tool(tool_name, tool_query)
+                        
+                        # If DuckDuckGo fails, automatically try SearX as fallback
+                        if not tool_result["success"] and tool_name == "web_search":
+                            yield AgentStep(
+                                step_type=StepType.TOOL_USE,
+                                content=f"DuckDuckGo failed, trying SearX with query: {tool_query}",
+                                timestamp=time.time(),
+                                metadata={"tool": "web_search", "provider": "searx", "query": tool_query, "status": "fallback", "execution_id": execution_id}
+                            )
+                            
+                            # Try with SearX provider
+                            fallback_result = self.execute_tool(tool_name, tool_query, provider="searx")
+                            if fallback_result["success"]:
+                                tool_result = fallback_result
                         
                         # Yield tool result
                         if tool_result["success"]:
@@ -313,9 +342,9 @@ Be conversational and helpful in your final answer, incorporating any tool resul
                             )
                             
                             # Now get the agent's analysis of the tool results
-                            analysis_messages = messages + [
-                                {"role": "assistant", "content": full_response},
-                                {"role": "user", "content": f"Here are the search results:\n\n{tool_result['results']}\n\nPlease analyze these results and provide your final answer."}
+                            analysis_messages = [
+                                {"role": "system", "content": "You are analyzing search results. Provide a direct, comprehensive answer based on the search results. Do not repeat the thinking process or use step markers. Just give the final answer."},
+                                {"role": "user", "content": f"Original query: {user_query}\n\nSearch results:\n{tool_result['results']}\n\nBased on these search results, provide a comprehensive answer to the user's question:"}
                             ]
                             
                             analysis_response = ""
