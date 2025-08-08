@@ -410,92 +410,105 @@ def finalize_assistant_response_with_timeline(prompt: str, config: Dict[str, Any
         chat_container: Streamlit container for displaying chat
     """
     try:
-        with st.spinner("Generating final answer..."):
-            # Prepare messages based on whether we have tool context
-            if st.session_state.tool_context:
-                # Accept & Continue: Use tool results as hidden system context
-                tool_context = st.session_state.tool_context
-                result = tool_context["result"]
-                
-                messages = [
-                    {
-                        "role": "system", 
-                        "content": f"""You are a helpful AI assistant. You have access to search results from {tool_context['provider']} for the query "{tool_context['query']}". Use this information to provide a comprehensive answer to the user's question. Do not mention that you performed a search or reference the search process - just provide a natural, helpful answer based on the information.
+        # Prepare messages based on whether we have tool context
+        if st.session_state.tool_context:
+            # Accept & Continue: Use tool results as hidden system context
+            tool_context = st.session_state.tool_context
+            result = tool_context["result"]
+            
+            messages = [
+                {
+                    "role": "system", 
+                    "content": f"""You are a helpful AI assistant. You have access to search results from {tool_context['provider']} for the query "{tool_context['query']}". Use this information to provide a comprehensive answer to the user's question. Do not mention that you performed a search or reference the search process - just provide a natural, helpful answer based on the information.
 
 Search Results:
 {result['results']}"""
-                    },
-                    {"role": "user", "content": prompt}
-                ]
-                
-                # Metadata for the response
-                metadata = result.get("metadata", {})
-                response_metadata = {
-                    "agent_mode": True,
-                    "tool_used": tool_context["tool_name"],
-                    "search_provider": tool_context["provider"],
-                    "search_time_ms": metadata.get("search_time_ms", 0),
-                    "total_results": metadata.get("total_results", 0)
-                }
-            else:
-                # Reject & Answer Without Tool: Generate best-effort answer without tool context
-                messages = [
-                    {
-                        "role": "system",
-                        "content": "You are a helpful AI assistant. Provide the best answer you can based on your training data, without using any external tools or search capabilities."
-                    },
-                    {"role": "user", "content": prompt}
-                ]
-                
-                response_metadata = {
-                    "agent_mode": True,
-                    "tool_context": "rejected"
-                }
+                },
+                {"role": "user", "content": prompt}
+            ]
             
-            # Stream the response
-            full_response = ""
-            final_metadata = {}
+            # Metadata for the response
+            metadata = result.get("metadata", {})
+            response_metadata = {
+                "agent_mode": True,
+                "tool_used": tool_context["tool_name"],
+                "search_provider": tool_context["provider"],
+                "search_time_ms": metadata.get("search_time_ms", 0),
+                "total_results": metadata.get("total_results", 0)
+            }
+        else:
+            # Reject & Answer Without Tool: Generate best-effort answer without tool context
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are a helpful AI assistant. Provide the best answer you can based on your training data, without using any external tools or search capabilities."
+                },
+                {"role": "user", "content": prompt}
+            ]
             
-            for chunk in st.session_state.agent.ollama_service.chat_stream(
-                model=config["model"],
-                messages=messages,
-                **config["params"]
-            ):
-                if "error" in chunk:
-                    st.error(f"Error: {chunk['error']}")
-                    break
-                
-                full_response = chunk.get("full_response", "")
-                final_metadata = chunk.get("metadata", {})
-                
-                if chunk.get("done"):
-                    break
+            response_metadata = {
+                "agent_mode": True,
+                "tool_context": "rejected"
+            }
+        
+        # Create a placeholder for streaming response
+        response_placeholder = st.empty()
+        full_response = ""
+        final_metadata = {}
+        
+        # Stream the response with visual updates
+        for chunk in st.session_state.agent.ollama_service.chat_stream(
+            model=config["model"],
+            messages=messages,
+            **config["params"]
+        ):
+            if "error" in chunk:
+                st.error(f"Error: {chunk['error']}")
+                break
             
-            # Add FINAL_ANSWER step to timeline
+            full_response = chunk.get("full_response", "")
+            final_metadata = chunk.get("metadata", {})
+            
+            # Update the streaming display
             if full_response:
-                from services.agent_service import AgentStep, StepType
-                
-                final_answer_step = AgentStep(
-                    step_type=StepType.FINAL_ANSWER,
-                    content=full_response,
-                    timestamp=time.time(),
-                    metadata={
-                        **response_metadata,
-                        **final_metadata,
-                        "response_length": len(full_response)
-                    }
-                )
-                
-                # Add to agent steps
-                st.session_state.agent_steps.append(final_answer_step)
-                
-                # Merge response metadata with tool metadata
-                combined_metadata = {**response_metadata, **final_metadata}
-                add_message("assistant", full_response, combined_metadata)
-                
-                # Show the final message in chat
-                with chat_container:
-                    render_chat_message(st.session_state.messages[-1])
+                with response_placeholder.container():
+                    st.markdown(f"""
+                    <div class="chat-message assistant-message">
+                        {full_response}
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            if chunk.get("done"):
+                break
+        
+        # Clear the streaming placeholder and add the final response to timeline and chat
+        response_placeholder.empty()
+        
+        # Add FINAL_ANSWER step to timeline
+        if full_response:
+            from services.agent_service import AgentStep, StepType
+            
+            final_answer_step = AgentStep(
+                step_type=StepType.FINAL_ANSWER,
+                content=full_response,
+                timestamp=time.time(),
+                metadata={
+                    **response_metadata,
+                    **final_metadata,
+                    "response_length": len(full_response)
+                }
+            )
+            
+            # Add to agent steps
+            st.session_state.agent_steps.append(final_answer_step)
+            
+            # Merge response metadata with tool metadata
+            combined_metadata = {**response_metadata, **final_metadata}
+            add_message("assistant", full_response, combined_metadata)
+            
+            # Show the final message in chat
+            with chat_container:
+                render_chat_message(st.session_state.messages[-1])
         
         # Clear finalization state
         st.session_state.tool_context = None
