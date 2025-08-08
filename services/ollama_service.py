@@ -1,5 +1,6 @@
 """
 Service layer for interacting with Ollama API.
+Implements LLMServiceInterface for consistent API.
 """
 
 import time
@@ -8,11 +9,16 @@ from typing import Dict, Any, List, Optional, Iterator
 import json
 import streamlit as st
 
+from core.interfaces.llm_service import LLMServiceInterface
+from core.exceptions import (
+    OllamaServiceError, OllamaConnectionError, OllamaModelError, 
+    ErrorCodes, create_error_with_code
+)
 from config.settings import OLLAMA_BASE_URL, DEFAULT_MODEL
 from utils.logger import get_logger, log_performance, log_ollama_request, log_ollama_response
 
 
-class OllamaService:
+class OllamaService(LLMServiceInterface):
     """Service class for Ollama API interactions."""
     
     def __init__(self, base_url: str = OLLAMA_BASE_URL):
@@ -21,7 +27,16 @@ class OllamaService:
     
     @log_performance("get_available_models")
     def get_available_models(self) -> List[str]:
-        """Get list of available models from Ollama."""
+        """
+        Get list of available models from Ollama.
+        
+        Returns:
+            List[str]: Available model names
+            
+        Raises:
+            OllamaConnectionError: If service is unavailable
+            OllamaServiceError: If request fails
+        """
         self.logger.info("Fetching available models from Ollama", base_url=self.base_url)
         
         try:
@@ -41,19 +56,37 @@ class OllamaService:
             elif DEFAULT_MODEL not in models:
                 self.logger.error(f"No models available and default model not found", 
                                 default_model=DEFAULT_MODEL)
-                st.error(f"Default model '{DEFAULT_MODEL}' not found. Please ensure it's installed in Ollama.")
+                # For backward compatibility with Streamlit UI
+                if 'streamlit' in str(type(st)):
+                    st.error(f"Default model '{DEFAULT_MODEL}' not found. Please ensure it's installed in Ollama.")
                 return []
             
             return models
             
+        except requests.ConnectionError as e:
+            error_msg = f"Failed to connect to Ollama API at {self.base_url}"
+            self.logger.error(error_msg, error=str(e), base_url=self.base_url)
+            raise OllamaConnectionError(
+                error_msg,
+                error_code=ErrorCodes.OLLAMA_CONNECTION_FAILED,
+                details={"base_url": self.base_url, "original_error": str(e)}
+            )
         except requests.RequestException as e:
-            self.logger.error(f"Failed to connect to Ollama API", error=str(e), base_url=self.base_url)
-            st.error(f"Failed to connect to Ollama: {e}")
-            return []
+            error_msg = f"Ollama API request failed: {str(e)}"
+            self.logger.error(error_msg, error=str(e), base_url=self.base_url)
+            raise OllamaServiceError(
+                error_msg,
+                error_code=ErrorCodes.OLLAMA_REQUEST_FAILED,
+                details={"base_url": self.base_url, "original_error": str(e)}
+            )
         except Exception as e:
-            self.logger.exception(f"Unexpected error fetching models", error=str(e))
-            st.error(f"Error fetching models: {e}")
-            return []
+            error_msg = f"Unexpected error fetching models: {str(e)}"
+            self.logger.exception(error_msg, error=str(e))
+            raise OllamaServiceError(
+                error_msg,
+                error_code=ErrorCodes.OLLAMA_REQUEST_FAILED,
+                details={"original_error": str(e)}
+            )
     
     def chat_stream(
         self,
@@ -76,6 +109,9 @@ class OllamaService:
         Yields:
             Dict containing response chunks and metadata
         """
+        # Validate parameters first
+        self.validate_parameters(temperature, max_tokens, top_p)
+        
         start_time = time.time()
         
         # Log the request
@@ -231,3 +267,57 @@ class OllamaService:
         except Exception as e:
             self.logger.error("Ollama service health check failed", error=str(e))
             return False
+    
+    def get_model_info(self, model: str) -> Dict[str, Any]:
+        """
+        Get information about a specific model.
+        
+        Args:
+            model: Model name
+            
+        Returns:
+            Dict[str, Any]: Model information and capabilities
+            
+        Raises:
+            OllamaModelError: If model is not found
+        """
+        self.logger.debug("Getting model info", model=model)
+        
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/show",
+                json={"name": model},
+                timeout=10
+            )
+            response.raise_for_status()
+            
+            model_info = response.json()
+            self.logger.debug("Retrieved model info", model=model, info_keys=list(model_info.keys()))
+            
+            return model_info
+            
+        except requests.HTTPError as e:
+            if e.response.status_code == 404:
+                raise OllamaModelError(
+                    f"Model '{model}' not found",
+                    error_code=ErrorCodes.OLLAMA_MODEL_NOT_FOUND,
+                    details={"model": model}
+                )
+            else:
+                raise OllamaServiceError(
+                    f"Failed to get model info: {str(e)}",
+                    error_code=ErrorCodes.OLLAMA_REQUEST_FAILED,
+                    details={"model": model, "status_code": e.response.status_code}
+                )
+        except requests.RequestException as e:
+            raise OllamaServiceError(
+                f"Request failed while getting model info: {str(e)}",
+                error_code=ErrorCodes.OLLAMA_REQUEST_FAILED,
+                details={"model": model, "original_error": str(e)}
+            )
+        except Exception as e:
+            raise OllamaServiceError(
+                f"Unexpected error getting model info: {str(e)}",
+                error_code=ErrorCodes.OLLAMA_REQUEST_FAILED,
+                details={"model": model, "original_error": str(e)}
+            )

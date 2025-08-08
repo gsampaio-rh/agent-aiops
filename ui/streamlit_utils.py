@@ -351,7 +351,7 @@ Search Results:
             full_response = ""
             final_metadata = {}
             
-            for chunk in st.session_state.agent.ollama_service.chat_stream(
+            for chunk in st.session_state.agent.llm_service.chat_stream(
                 model=config["model"],
                 messages=messages,
                 **config["params"]
@@ -457,7 +457,7 @@ Search Results:
         final_metadata = {}
         
         # Stream the response with visual updates
-        for chunk in st.session_state.agent.ollama_service.chat_stream(
+        for chunk in st.session_state.agent.llm_service.chat_stream(
             model=config["model"],
             messages=messages,
             **config["params"]
@@ -701,7 +701,7 @@ def process_normal_chat(prompt: str, config: Dict[str, Any], chat_container):
         final_metadata = {}
         
         try:
-            for chunk in config["ollama_service"].chat_stream(
+            for chunk in st.session_state.agent.llm_service.chat_stream(
                 model=config["model"],
                 messages=api_messages,
                 **config["params"]

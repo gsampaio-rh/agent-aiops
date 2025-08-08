@@ -3,48 +3,30 @@ React Agent Service
 
 Implements a reasoning agent that can use tools and shows its thought process.
 Inspired by ReAct (Reasoning + Acting) pattern.
+Implements AgentServiceInterface for consistent API.
 """
 
 import time
 import json
-from typing import Dict, List, Any, Optional, Iterator, Callable
-from dataclasses import dataclass, asdict
-from enum import Enum
+from typing import Dict, List, Any, Optional, Iterator
+import uuid
 
+from core.interfaces.agent_service import AgentServiceInterface, ToolInterface
+from core.interfaces.llm_service import LLMServiceInterface
+from core.interfaces.search_service import SearchServiceInterface
+from core.models.agent import AgentStep, AgentResponse, StepType, ToolInfo
+from core.models.search import SearchQuery
+from core.exceptions import (
+    AgentError, AgentProcessingError, ToolExecutionError, 
+    ErrorCodes, create_error_with_code
+)
 from services.ollama_service import OllamaService
 from services.search_service import WebSearchService
+from config.constants import AGENT_CONFIG
 from utils.logger import get_logger, log_performance, log_agent_step, request_context
 
 
-class StepType(Enum):
-    """Types of agent steps."""
-    THOUGHT = "thought"
-    TOOL_SELECTION = "tool_selection"
-    TOOL_USE = "tool_use"
-    TOOL_RESULT = "tool_result"
-    FINAL_ANSWER = "final_answer"
-    ERROR = "error"
-
-
-@dataclass
-class AgentStep:
-    """Represents a single step in the agent's reasoning process."""
-    step_type: StepType
-    content: str
-    timestamp: float
-    metadata: Optional[Dict[str, Any]] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "step_type": self.step_type.value,
-            "content": self.content,
-            "timestamp": self.timestamp,
-            "metadata": self.metadata or {}
-        }
-
-
-class AgentTool:
+class AgentTool(ToolInterface):
     """Base class for agent tools."""
     
     def __init__(self, name: str, description: str):
@@ -55,12 +37,12 @@ class AgentTool:
         """Execute the tool with given parameters."""
         raise NotImplementedError
     
-    def get_tool_info(self) -> Dict[str, str]:
+    def get_tool_info(self) -> ToolInfo:
         """Get tool information for the agent."""
-        return {
-            "name": self.name,
-            "description": self.description
-        }
+        return ToolInfo(
+            name=self.name,
+            description=self.description
+        )
 
 
 class WebSearchTool(AgentTool):
@@ -83,32 +65,38 @@ class WebSearchTool(AgentTool):
             from services.search_service import WebSearchService
             search_service = WebSearchService()
             
-            result = search_service.search(
+            # Create search query
+            search_query = SearchQuery(
                 query=query,
                 provider=provider,
                 max_results=max_results
             )
             
-            if result["status"] == "success" and result["results"]:
-                # Format results for the agent
-                formatted_results = []
-                for i, res in enumerate(result["results"][:max_results], 1):
-                    formatted_results.append(f"{i}. {res['title']}\n   {res['snippet']}\n   Source: {res['url']}")
+            # Use new interface method
+            result = search_service.search(search_query)
+            
+            if result.is_successful() and result.results:
+                # Use the built-in formatting method
+                formatted_results = result.get_formatted_results(max_results)
                 
                 return {
                     "success": True,
-                    "results": "\n\n".join(formatted_results),
+                    "results": formatted_results,
                     "metadata": {
-                        "provider": result.get("provider_name", provider),
-                        "total_results": result["total_results"],
-                        "search_time_ms": result.get("search_time_ms", 0)
+                        "provider": result.provider_name,
+                        "total_results": result.total_results,
+                        "search_time_ms": result.search_time_ms
                     }
                 }
             else:
                 return {
                     "success": False,
-                    "error": result.get("error", "No results found"),
-                    "metadata": result
+                    "error": result.error or "No results found",
+                    "metadata": {
+                        "provider": result.provider_name,
+                        "total_results": result.total_results,
+                        "search_time_ms": result.search_time_ms
+                    }
                 }
                 
         except Exception as e:
@@ -119,14 +107,17 @@ class WebSearchTool(AgentTool):
             }
 
 
-class ReactAgent:
+class ReactAgent(AgentServiceInterface):
     """React Agent that can reason and use tools."""
     
-    def __init__(self, model: str = "llama3.2:3b"):
-        self.ollama_service = OllamaService()
+    def __init__(self, model: str = "llama3.2:3b", 
+                 llm_service: Optional[LLMServiceInterface] = None,
+                 search_service: Optional[SearchServiceInterface] = None):
+        self.llm_service = llm_service or OllamaService()
+        self.search_service = search_service or WebSearchService()
         self.model = model
-        self.tools = {}
-        self.max_iterations = 10
+        self.tools: Dict[str, ToolInterface] = {}
+        self.max_iterations = AGENT_CONFIG.get("max_iterations", 10)
         self.logger = get_logger(__name__)
         
         # Register default tools
@@ -166,15 +157,72 @@ IMPORTANT: When using web_search, use simple, clear search terms. For example:
 
 Be conversational and helpful in your reasoning."""
     
-    def register_tool(self, tool: AgentTool):
-        """Register a new tool."""
-        self.tools[tool.name] = tool
+    def register_tool(self, tool: ToolInterface) -> None:
+        """
+        Register a new tool with the agent.
+        
+        Args:
+            tool: Tool instance to register
+            
+        Raises:
+            AgentError: If tool registration fails
+        """
+        try:
+            tool_info = tool.get_tool_info()
+            self.tools[tool_info.name] = tool
+            self.logger.info("Registered tool", tool_name=tool_info.name)
+        except Exception as e:
+            raise AgentError(
+                f"Failed to register tool: {str(e)}",
+                error_code=ErrorCodes.AGENT_INIT_FAILED,
+                details={"tool": getattr(tool, 'name', 'unknown'), "error": str(e)}
+            )
+    
+    def get_available_tools(self) -> List[ToolInfo]:
+        """
+        Get list of available tools.
+        
+        Returns:
+            List[ToolInfo]: Available tool information
+        """
+        return [tool.get_tool_info() for tool in self.tools.values()]
+    
+    def update_model(self, model: str) -> None:
+        """
+        Update the model used by the agent.
+        
+        Args:
+            model: New model name
+            
+        Raises:
+            AgentError: If model update fails
+        """
+        try:
+            # Validate that the model exists
+            available_models = self.llm_service.get_available_models()
+            if model not in available_models:
+                raise AgentError(
+                    f"Model '{model}' not available",
+                    error_code=ErrorCodes.AGENT_INIT_FAILED,
+                    details={"model": model, "available": available_models}
+                )
+            
+            old_model = self.model
+            self.model = model
+            self.logger.info("Updated agent model", old_model=old_model, new_model=model)
+        except Exception as e:
+            raise AgentError(
+                f"Failed to update model: {str(e)}",
+                error_code=ErrorCodes.AGENT_INIT_FAILED,
+                details={"model": model, "error": str(e)}
+            )
     
     def get_tools_description(self) -> str:
         """Get formatted description of all tools."""
         descriptions = []
         for tool in self.tools.values():
-            descriptions.append(f"- {tool.name}: {tool.description}")
+            tool_info = tool.get_tool_info()
+            descriptions.append(f"- {tool_info.name}: {tool_info.description}")
         return "\n".join(descriptions)
     
     def parse_agent_response(self, response: str) -> List[AgentStep]:
@@ -275,7 +323,7 @@ Be conversational and helpful in your reasoning."""
                 
                 # Get agent response
                 full_response = ""
-                for chunk in self.ollama_service.chat_stream(
+                for chunk in self.llm_service.chat_stream(
                     model=self.model,
                     messages=messages,
                     temperature=kwargs.get("temperature", 0.7),
@@ -373,7 +421,7 @@ Be conversational and helpful in your reasoning."""
                                 ]
                                 
                                 analysis_response = ""
-                                for chunk in self.ollama_service.chat_stream(
+                                for chunk in self.llm_service.chat_stream(
                                     model=self.model,
                                     messages=analysis_messages,
                                     temperature=kwargs.get("temperature", 0.7),
@@ -409,9 +457,46 @@ Be conversational and helpful in your reasoning."""
                     metadata={"error": str(e)}
                 )
     
-    def process_query(self, user_query: str, **kwargs) -> List[AgentStep]:
-        """Process user query and return all steps."""
-        steps = []
-        for step in self.process_query_stream(user_query, **kwargs):
-            steps.append(step)
-        return steps
+    def process_query(self, user_query: str, **kwargs) -> AgentResponse:
+        """
+        Process user query and return complete response.
+        
+        Args:
+            user_query: User's input query
+            **kwargs: Additional processing parameters
+            
+        Returns:
+            AgentResponse: Complete agent response with all steps
+            
+        Raises:
+            AgentProcessingError: If query processing fails
+        """
+        # Validate query first
+        self.validate_query(user_query)
+        
+        start_time = time.time()
+        response = AgentResponse(query=user_query)
+        
+        try:
+            for step in self.process_query_stream(user_query, **kwargs):
+                response.add_step(step)
+            
+            response.total_time_ms = round((time.time() - start_time) * 1000)
+            return response
+            
+        except Exception as e:
+            error_step = AgentStep(
+                step_type=StepType.ERROR,
+                content=f"Query processing failed: {str(e)}",
+                timestamp=time.time(),
+                metadata={"error": str(e)}
+            )
+            response.add_step(error_step)
+            response.error = str(e)
+            response.total_time_ms = round((time.time() - start_time) * 1000)
+            
+            raise AgentProcessingError(
+                f"Failed to process query: {str(e)}",
+                error_code=ErrorCodes.AGENT_PROCESSING_FAILED,
+                details={"query": user_query, "error": str(e)}
+            )

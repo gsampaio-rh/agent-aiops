@@ -4,6 +4,12 @@ Configuration settings for the Ollama Chatbot application.
 
 import os
 from typing import Dict, Any
+try:
+    from pydantic_settings import BaseSettings
+    from pydantic import Field
+except ImportError:
+    # Fallback for older pydantic versions
+    from pydantic import BaseSettings, Field
 
 # Default model configuration
 DEFAULT_MODEL = "llama3.2:3b"
@@ -59,3 +65,48 @@ LOGGING_CONFIG = {
     "max_file_size": int(os.getenv("LOG_MAX_FILE_SIZE", str(10 * 1024 * 1024))),  # 10MB
     "backup_count": int(os.getenv("LOG_BACKUP_COUNT", "5"))
 }
+
+
+class AppConfig(BaseSettings):
+    """Application configuration with validation."""
+    
+    # Ollama Configuration
+    ollama_base_url: str = Field("http://localhost:11434", env="OLLAMA_BASE_URL")
+    default_model: str = Field("llama3.2:3b", env="DEFAULT_MODEL")
+    
+    # Model Parameters
+    default_temperature: float = Field(0.7, ge=0.0, le=2.0, env="DEFAULT_TEMPERATURE")
+    default_max_tokens: int = Field(1000, ge=1, le=10000, env="DEFAULT_MAX_TOKENS")
+    default_top_p: float = Field(0.9, ge=0.0, le=1.0, env="DEFAULT_TOP_P")
+    
+    # UI Configuration
+    app_title: str = Field("Ollama Chatbot", env="APP_TITLE")
+    app_icon: str = Field("🤖", env="APP_ICON")
+    max_chat_history: int = Field(100, ge=1, le=1000, env="MAX_CHAT_HISTORY")
+    
+    # Logging Configuration
+    log_level: str = Field("INFO", env="LOG_LEVEL")
+    log_dir: str = Field("logs", env="LOG_DIR")
+    enable_file_logging: bool = Field(True, env="ENABLE_FILE_LOGGING")
+    enable_json_logging: bool = Field(True, env="ENABLE_JSON_LOGGING")
+    log_max_file_size: int = Field(10 * 1024 * 1024, env="LOG_MAX_FILE_SIZE")  # 10MB
+    log_backup_count: int = Field(5, env="LOG_BACKUP_COUNT")
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+
+
+# Global config instance
+config = AppConfig()
+
+# Keep backward compatibility
+DEFAULT_MODEL = config.default_model
+DEFAULT_TEMPERATURE = config.default_temperature
+DEFAULT_MAX_TOKENS = config.default_max_tokens
+DEFAULT_TOP_P = config.default_top_p
+OLLAMA_BASE_URL = config.ollama_base_url
+APP_TITLE = config.app_title
+APP_ICON = config.app_icon
+MAX_CHAT_HISTORY = config.max_chat_history
+SHOW_DETAILED_METRICS = True  # Keep as is for now

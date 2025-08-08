@@ -2,6 +2,7 @@
 Enhanced Web Search Service
 
 Provides multiple search providers with error handling and result normalization.
+Implements SearchServiceInterface for consistent API.
 """
 
 import requests
@@ -11,47 +12,15 @@ from urllib.parse import quote_plus, urljoin
 import json
 import re
 from bs4 import BeautifulSoup
+
+from core.interfaces.search_service import SearchServiceInterface
+from core.models.search import SearchQuery, SearchResponse, SearchResult
+from core.exceptions import SearchError, SearchProviderError, SearchTimeoutError, ErrorCodes
+from config.constants import SEARCH_PROVIDERS
 from utils.logger import get_logger, log_performance, log_search_query
 
 
-class SearchResult:
-    """Standardized search result data structure."""
-    
-    def __init__(self, title: str, url: str, snippet: str, source: str = "", 
-                 metadata: Optional[Dict[str, Any]] = None):
-        self.title = self._clean_text(title)
-        self.url = url
-        self.snippet = self._clean_text(snippet)
-        self.source = source
-        self.metadata = metadata or {}
-        self.timestamp = time.time()
-    
-    def _clean_text(self, text: str) -> str:
-        """Clean and normalize text content."""
-        if not text:
-            return ""
-        
-        # Remove HTML tags
-        text = re.sub(r'<[^>]+>', '', str(text))
-        
-        # Normalize whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
-        
-        return text
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "title": self.title,
-            "url": self.url,
-            "snippet": self.snippet,
-            "source": self.source,
-            "metadata": self.metadata,
-            "timestamp": self.timestamp
-        }
-
-
-class WebSearchService:
+class WebSearchService(SearchServiceInterface):
     """Enhanced web search service with multiple providers."""
     
     def __init__(self):
@@ -62,101 +31,156 @@ class WebSearchService:
         self.timeout = 10  # Shorter timeout to prevent hanging
         self.logger = get_logger(__name__)
         
-        self.providers = {
-            "duckduckgo": {
-                "name": "DuckDuckGo",
-                "function": self._search_duckduckgo,
-                "supports_instant": True
-            },
-            "searx": {
-                "name": "SearX",
-                "function": self._search_searx,
-                "supports_instant": False
-            },
-            "brave": {
-                "name": "Brave Search",
-                "function": self._search_brave,
-                "supports_instant": False
-            },
-            "startpage": {
-                "name": "Startpage",
-                "function": self._search_startpage,
-                "supports_instant": False
+        # Load provider configuration from constants
+        self.providers = {}
+        for provider_name, config in SEARCH_PROVIDERS.items():
+            self.providers[provider_name] = {
+                "name": config["name"],
+                "function": getattr(self, f"_search_{provider_name}"),
+                "supports_instant": config.get("supports_instant", False),
+                "timeout": config.get("timeout", self.timeout)
             }
-        }
     
     def get_available_providers(self) -> List[str]:
         """Get list of available search providers."""
         return list(self.providers.keys())
     
-    @log_performance("web_search")
-    def search(self, query: str, provider: str = "duckduckgo", 
-               max_results: int = 10, **kwargs) -> Dict[str, Any]:
+    @log_performance("web_search") 
+    def search(self, query: SearchQuery) -> SearchResponse:
         """
         Perform web search using specified provider.
         
         Args:
-            query: Search query
-            provider: Search provider to use
-            max_results: Maximum number of results
-            **kwargs: Additional provider-specific parameters
+            query: SearchQuery object with search parameters
             
         Returns:
-            Dict containing search results and metadata
+            SearchResponse: Complete search response with results and metadata
+            
+        Raises:
+            SearchProviderError: If the search provider fails
+            SearchTimeoutError: If the search times out
+            ValidationError: If query parameters are invalid
         """
+        # Validate query first
+        self.validate_query(query)
+        
         start_time = time.time()
         
-        self.logger.info("Starting web search", query=query, provider=provider, max_results=max_results)
+        self.logger.info("Starting web search", 
+                        query=query.query, 
+                        provider=query.provider, 
+                        max_results=query.max_results)
         
         try:
-            if provider not in self.providers:
-                raise ValueError(f"Unknown provider: {provider}. Available: {list(self.providers.keys())}")
+            if query.provider not in self.providers:
+                raise SearchProviderError(
+                    f"Unknown provider: {query.provider}",
+                    error_code=ErrorCodes.SEARCH_PROVIDER_FAILED,
+                    details={
+                        "provider": query.provider,
+                        "available": list(self.providers.keys())
+                    }
+                )
             
-            provider_info = self.providers[provider]
+            provider_info = self.providers[query.provider]
             search_function = provider_info["function"]
             
-            results = search_function(query, max_results, **kwargs)
-            
-            # Convert SearchResult objects to dicts
-            results_dict = [r.to_dict() if isinstance(r, SearchResult) else r for r in results]
+            # Execute search with timeout
+            try:
+                results = search_function(query.query, query.max_results, **query.parameters)
+            except requests.exceptions.Timeout:
+                raise SearchTimeoutError(
+                    f"Search request timed out for provider {query.provider}",
+                    error_code=ErrorCodes.SEARCH_TIMEOUT,
+                    details={"provider": query.provider, "timeout": self.timeout}
+                )
             
             search_time_ms = round((time.time() - start_time) * 1000)
             
+            # Create response object
+            response = SearchResponse(
+                query=query.query,
+                provider=query.provider,
+                provider_name=provider_info["name"],
+                search_time_ms=search_time_ms,
+                status="success"
+            )
+            
+            # Add results
+            for result in results:
+                if isinstance(result, dict):
+                    # Convert dict to SearchResult if needed
+                    result = SearchResult(**result)
+                response.add_result(result)
+            
             # Log search completion
-            log_search_query(provider, query, len(results_dict), search_time_ms)
+            log_search_query(query.provider, query.query, response.total_results, search_time_ms)
             self.logger.info("Web search completed", 
-                           provider=provider, 
-                           results_count=len(results_dict),
+                           provider=query.provider, 
+                           results_count=response.total_results,
                            search_time_ms=search_time_ms)
             
-            return {
-                "query": query,
-                "provider": provider,
-                "provider_name": provider_info["name"],
-                "results": results_dict,
-                "total_results": len(results_dict),
-                "search_time_ms": search_time_ms,
-                "timestamp": time.time(),
-                "status": "success"
-            }
+            return response
             
+        except (SearchError, SearchProviderError, SearchTimeoutError):
+            # Re-raise our custom exceptions
+            raise
         except Exception as e:
             search_time_ms = round((time.time() - start_time) * 1000)
             self.logger.error("Web search failed", 
-                            provider=provider, 
-                            query=query,
+                            provider=query.provider, 
+                            query=query.query,
                             error=str(e),
                             search_time_ms=search_time_ms)
             
+            # Create error response
+            response = SearchResponse(
+                query=query.query,
+                provider=query.provider,
+                provider_name=self.providers.get(query.provider, {}).get("name", query.provider),
+                search_time_ms=search_time_ms,
+                status="error",
+                error=str(e)
+            )
+            
+            return response
+    
+    def test_provider(self, provider: str) -> Dict[str, Any]:
+        """
+        Test if a specific provider is working.
+        
+        Args:
+            provider: Provider name to test
+            
+        Returns:
+            Dict[str, Any]: Test results with status and performance metrics
+        """
+        test_query = SearchQuery(
+            query="python programming",
+            provider=provider,
+            max_results=3
+        )
+        
+        start_time = time.time()
+        
+        try:
+            response = self.search(test_query)
+            test_duration_ms = round((time.time() - start_time) * 1000)
+            
             return {
-                "query": query,
                 "provider": provider,
-                "provider_name": self.providers.get(provider, {}).get("name", provider),
-                "results": [],
-                "total_results": 0,
-                "search_time_ms": search_time_ms,
-                "timestamp": time.time(),
+                "status": "success" if response.is_successful() else "error",
+                "results_count": response.total_results,
+                "test_duration_ms": test_duration_ms,
+                "error": response.error if not response.is_successful() else None
+            }
+        except Exception as e:
+            test_duration_ms = round((time.time() - start_time) * 1000)
+            return {
+                "provider": provider,
                 "status": "error",
+                "results_count": 0,
+                "test_duration_ms": test_duration_ms,
                 "error": str(e)
             }
     
@@ -442,3 +466,46 @@ class WebSearchService:
                 }
         
         return results
+    
+    # Backward compatibility method for existing code
+    def search_legacy(self, query: str, provider: str = "duckduckgo", 
+                     max_results: int = 10, **kwargs) -> Dict[str, Any]:
+        """
+        Legacy search method for backward compatibility.
+        
+        This method maintains the old API while using the new implementation.
+        """
+        search_query = SearchQuery(
+            query=query,
+            provider=provider,
+            max_results=max_results,
+            parameters=kwargs
+        )
+        
+        try:
+            response = self.search(search_query)
+            
+            # Convert to old format
+            return {
+                "query": response.query,
+                "provider": response.provider,
+                "provider_name": response.provider_name,
+                "results": [result.to_dict() for result in response.results],
+                "total_results": response.total_results,
+                "search_time_ms": response.search_time_ms,
+                "timestamp": response.timestamp,
+                "status": response.status,
+                "error": response.error
+            }
+        except Exception as e:
+            return {
+                "query": query,
+                "provider": provider,
+                "provider_name": SEARCH_PROVIDERS.get(provider, {}).get("name", provider),
+                "results": [],
+                "total_results": 0,
+                "search_time_ms": 0,
+                "timestamp": time.time(),
+                "status": "error",
+                "error": str(e)
+            }
