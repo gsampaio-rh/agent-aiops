@@ -58,7 +58,7 @@ SHOW_DETAILED_METRICS = True  # Set to False for simplified metrics display
 
 # Logging configuration
 LOGGING_CONFIG = {
-    "level": os.getenv("LOG_LEVEL", "INFO"),
+    "level": os.getenv("LOG_LEVEL", "DEBUG"),
     "log_dir": os.getenv("LOG_DIR", "logs"),
     "enable_file_logging": os.getenv("ENABLE_FILE_LOGGING", "true").lower() == "true",
     "enable_json_logging": os.getenv("ENABLE_JSON_LOGGING", "true").lower() == "true",

@@ -16,6 +16,44 @@ from typing import Dict, Any
 from services.agent_service import AgentStep, StepType
 
 
+def _extract_command_output(raw_output: str) -> str:
+    """
+    Extract the actual command output from Desktop Commander's response format.
+    
+    Desktop Commander returns output in format:
+    "Process started with PID XXXXX (shell: /bin/sh)\nInitial output:\n[ACTUAL_OUTPUT]"
+    
+    Args:
+        raw_output: Raw output from Desktop Commander
+        
+    Returns:
+        str: Clean command output
+    """
+    if not raw_output:
+        return ""
+    
+    # Look for "Initial output:" marker
+    if "Initial output:\n" in raw_output:
+        parts = raw_output.split("Initial output:\n", 1)
+        if len(parts) > 1:
+            return parts[1].rstrip('\n')
+    
+    # Alternative: if it starts with process info, skip that line
+    if raw_output.startswith("Process started with PID"):
+        lines = raw_output.split('\n')
+        if len(lines) > 2:  # PID line, "Initial output:", actual output
+            # Find the first line that's not process info or "Initial output:"
+            for i, line in enumerate(lines):
+                if line == "Initial output:":
+                    # Return everything after this line
+                    return '\n'.join(lines[i+1:]).rstrip('\n')
+            # Fallback: skip first line (PID info)
+            return '\n'.join(lines[1:]).rstrip('\n')
+    
+    # If no special format detected, return as-is
+    return raw_output.rstrip('\n')
+
+
 def render_tool_permission_card(tool_name: str, query: str, description: str):
     """
     Render a tool permission card with Allow/Save & Execute buttons.
@@ -242,16 +280,44 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
         </div>
         """, unsafe_allow_html=True)
         
-        # Show brief summary
-        st.info(f"🔧 **{tool_name}** retrieved {metadata.get('total_results', 0)} results from {metadata.get('provider', 'search')} in {metadata.get('search_time_ms', 0)}ms")
-        
-        # Show expandable results preview
-        with st.expander("📋 Preview Results", expanded=False):
-            st.markdown(f"""
-            <div class="tool-results-container">
-                <pre class="tool-results">{result.get("results", "No results")}</pre>
-            </div>
-            """, unsafe_allow_html=True)
+        # Show brief summary - handle different tool types
+        if tool_name == "terminal":
+            # Terminal tool specific summary
+            exit_code = metadata.get('exit_code', 0)
+            status = "✅ Success" if exit_code == 0 else f"❌ Exit code {exit_code}"
+            output_length = len(result.get("output", ""))
+            st.info(f"🔧 **{tool_name}** executed command with {status} - {output_length} characters output")
+            
+            # Show expandable results preview for terminal with options
+            with st.expander("📋 Preview Command Output", expanded=False):
+                # Toggle between clean and raw output
+                show_raw = st.checkbox("Show full JSON response", key="show_raw_output")
+                
+                if show_raw:
+                    # Show the complete result structure
+                    import json
+                    st.markdown("**Full Result JSON:**")
+                    st.json(result)
+                else:
+                    # Clean up the output to remove MCP metadata
+                    raw_output = result.get("output", "No output")
+                    clean_output = _extract_command_output(raw_output)
+                    st.markdown(f"""
+                    <div class="tool-results-container">
+                        <pre class="tool-results">{clean_output}</pre>
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            # Web search and other tools
+            st.info(f"🔧 **{tool_name}** retrieved {metadata.get('total_results', 0)} results from {metadata.get('provider', 'search')} in {metadata.get('search_time_ms', 0)}ms")
+            
+            # Show expandable results preview
+            with st.expander("📋 Preview Results", expanded=False):
+                st.markdown(f"""
+                <div class="tool-results-container">
+                    <pre class="tool-results">{result.get("results", "No results")}</pre>
+                </div>
+                """, unsafe_allow_html=True)
         
         # Action buttons for result approval
         st.markdown("""
@@ -272,15 +338,15 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
                     # Create TOOL_RESULT step
                     tool_result_step = AgentStep(
                         step_type=StepType.TOOL_RESULT,
-                        content=f"Retrieved {metadata.get('total_results', 0)} results from {metadata.get('provider', 'search')} in {metadata.get('search_time_ms', 0)}ms",
+                        content=f"Retrieved {metadata.get('total_results', 0)} results from {metadata.get('provider', 'search')} in {metadata.get('search_time_ms', 0)}ms" if tool_name != "terminal" else f"Executed command with exit code {metadata.get('exit_code', 0)}",
                         timestamp=time.time(),
                         metadata={
                             "tool_name": tool_name,
-                            "provider": metadata.get("provider", "Unknown"),
+                            "provider": metadata.get("provider", "terminal" if tool_name == "terminal" else "Unknown"),
                             "search_time_ms": metadata.get("search_time_ms", 0),
                             "total_results": metadata.get("total_results", 0),
-                            "results_preview": result.get("results", "")[:200] + "..." if len(result.get("results", "")) > 200 else result.get("results", ""),
-                            "full_results": result.get("results", ""),
+                            "results_preview": (result.get("output", "")[:200] + "..." if len(result.get("output", "")) > 200 else result.get("output", "")) if tool_name == "terminal" else (result.get("results", "")[:200] + "..." if len(result.get("results", "")) > 200 else result.get("results", "")),
+                            "full_results": result.get("output", "") if tool_name == "terminal" else result.get("results", ""),
                             "user_decision": "accepted"
                         }
                     )

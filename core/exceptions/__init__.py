@@ -25,6 +25,14 @@ from .agent_exceptions import (
     AgentProcessingError,
     ToolExecutionError
 )
+from .mcp_exceptions import (
+    MCPError,
+    MCPConnectionError,
+    MCPToolError,
+    MCPTimeoutError,
+    MCPPermissionError,
+    MCPInvalidResponseError
+)
 
 __all__ = [
     # Base exceptions
@@ -45,5 +53,13 @@ __all__ = [
     # Agent exceptions
     "AgentError",
     "AgentProcessingError",
-    "ToolExecutionError"
+    "ToolExecutionError",
+    
+    # MCP exceptions
+    "MCPError",
+    "MCPConnectionError",
+    "MCPToolError",
+    "MCPTimeoutError",
+    "MCPPermissionError",
+    "MCPInvalidResponseError"
 ]

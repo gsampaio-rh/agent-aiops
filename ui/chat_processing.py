@@ -36,13 +36,26 @@ def finalize_assistant_response_with_timeline(prompt: str, config: Dict[str, Any
             tool_context = st.session_state.tool_context
             result = tool_context["result"]
             
+            # Get the appropriate result content based on tool type
+            if tool_context["tool_name"] == "terminal":
+                tool_output = result.get('output', 'No output')
+                content_type = "command output"
+                system_content = f"""You are a helpful AI assistant. You have access to terminal command output from the query "{tool_context['query']}". Use this information to provide a comprehensive answer to the user's question. Do not mention that you performed a terminal command - just provide a natural, helpful answer based on the output.
+
+Command Output:
+{tool_output}"""
+            else:
+                search_results = result.get('results', 'No results')
+                content_type = "search results"
+                system_content = f"""You are a helpful AI assistant. You have access to search results from {tool_context['provider']} for the query "{tool_context['query']}". Use this information to provide a comprehensive answer to the user's question. Do not mention that you performed a search or reference the search process - just provide a natural, helpful answer based on the information.
+
+Search Results:
+{search_results}"""
+
             messages = [
                 {
                     "role": "system", 
-                    "content": f"""You are a helpful AI assistant. You have access to search results from {tool_context['provider']} for the query "{tool_context['query']}". Use this information to provide a comprehensive answer to the user's question. Do not mention that you performed a search or reference the search process - just provide a natural, helpful answer based on the information.
-
-Search Results:
-{result['results']}"""
+                    "content": system_content
                 },
                 {"role": "user", "content": prompt}
             ]

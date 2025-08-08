@@ -14,15 +14,18 @@ import uuid
 from core.interfaces.agent_service import AgentServiceInterface, ToolInterface
 from core.interfaces.llm_service import LLMServiceInterface
 from core.interfaces.search_service import SearchServiceInterface
+from core.interfaces.mcp_service import MCPServiceInterface
 from core.models.agent import AgentStep, AgentResponse, StepType, ToolInfo
 from core.models.search import SearchQuery
 from core.exceptions import (
     AgentError, AgentProcessingError, ToolExecutionError, 
-    ErrorCodes, create_error_with_code
+    ErrorCodes, create_error_with_code, MCPError
 )
 from services.ollama_service import OllamaService
 from services.search_service import WebSearchService
-from config.constants import AGENT_CONFIG
+from services.terminal_tool import TerminalTool
+from services.mcp_service import DesktopCommanderMCP
+from config.constants import AGENT_CONFIG, MCP_CONFIG
 from utils.logger import get_logger, log_performance, log_agent_step, request_context
 
 
@@ -120,42 +123,132 @@ class ReactAgent(AgentServiceInterface):
         self.max_iterations = AGENT_CONFIG.get("max_iterations", 10)
         self.logger = get_logger(__name__)
         
+        # MCP services
+        self.mcp_services: Dict[str, MCPServiceInterface] = {}
+        self._mcp_connected = False
+        
+        # Initialize MCP services if enabled
+        self._initialize_mcp_services()
+        
         # Register default tools
         self.register_tool(WebSearchTool())
         
-        self.logger.info("Initialized ReactAgent", model=model, tools=list(self.tools.keys()))
+        # Register terminal tool if enabled
+        if AGENT_CONFIG.get("enable_terminal", False):
+            # Get the desktop_commander MCP service for the terminal tool
+            mcp_service = self.mcp_services.get("desktop_commander")
+            self.register_tool(TerminalTool(require_confirmation=False, mcp_client=mcp_service))
         
-        # System prompt for the agent
-        self.system_prompt = """You are a helpful AI assistant that can reason step by step and use tools when needed.
+        self.logger.info("Initialized ReactAgent", model=model, tools=list(self.tools.keys()))
+    
+    def _initialize_mcp_services(self) -> None:
+        """Initialize MCP services based on configuration."""
+        try:
+            mcp_servers = AGENT_CONFIG.get("mcp_servers", [])
+            
+            for server_name in mcp_servers:
+                if server_name == "desktop_commander" and MCP_CONFIG.get("desktop_commander", {}).get("enabled", False):
+                    self.mcp_services[server_name] = DesktopCommanderMCP()
+                    self.logger.info("Initialized MCP service", service=server_name)
+                    
+        except Exception as e:
+            self.logger.error("Failed to initialize MCP services", error=str(e))
+    
+    async def connect_mcp_services(self) -> None:
+        """Connect to all configured MCP services."""
+        if self._mcp_connected:
+            return
+            
+        try:
+            for service_name, service in self.mcp_services.items():
+                self.logger.info("Connecting to MCP service", service=service_name)
+                connected = await service.connect()
+                if connected:
+                    self.logger.info("Successfully connected to MCP service", service=service_name)
+                    
+                    # List available tools for debugging
+                    try:
+                        tools = await service.list_tools()
+                        self.logger.info("MCP service tools available", 
+                                       service=service_name, 
+                                       tools=[tool.get('name') for tool in tools])
+                    except Exception as e:
+                        self.logger.warning("Failed to list tools for MCP service", 
+                                          service=service_name, error=str(e))
+                else:
+                    self.logger.error("Failed to connect to MCP service", service=service_name)
+            
+            self._mcp_connected = True
+            self.logger.info("All MCP services connected")
+            
+        except Exception as e:
+            self.logger.error("Failed to connect MCP services", error=str(e))
+            raise AgentError(
+                f"Failed to connect MCP services: {str(e)}",
+                error_code=ErrorCodes.AGENT_INIT_FAILED,
+                details={"error": str(e)}
+            )
+    
+    async def disconnect_mcp_services(self) -> None:
+        """Disconnect from all MCP services."""
+        try:
+            for service_name, service in self.mcp_services.items():
+                if service.is_connected():
+                    await service.disconnect()
+                    self.logger.info("Disconnected from MCP service", service=service_name)
+            
+            self._mcp_connected = False
+            self.logger.info("All MCP services disconnected")
+            
+        except Exception as e:
+            self.logger.error("Failed to disconnect MCP services", error=str(e))
+    
+    def get_mcp_service(self, service_name: str) -> Optional[MCPServiceInterface]:
+        """Get MCP service by name."""
+        return self.mcp_services.get(service_name)
+    
+    @property
+    def system_prompt(self) -> str:
+        """Backward compatibility property for system prompt."""
+        return self._get_system_prompt()
+    
+    def _get_system_prompt(self) -> str:
+        """Get the system prompt for the agent."""
+        return """You are a helpful AI assistant with access to web search and terminal command execution. You can reason step by step and use tools when needed.
 
 Available tools:
 {tools_description}
 
-When responding to a user query, follow this pattern:
+IMPORTANT: Follow this exact pattern for ALL responses:
 
 1. THOUGHT: Think about what the user is asking and whether you need to use a tool
-2. TOOL_SELECTION: If you need a tool, decide which one and why
-3. TOOL_USE: Use the tool with appropriate parameters
+2. If you need a tool:
+   - TOOL_SELECTION: Choose which tool and explain why
+   - TOOL_USE: [tool_name]: [exact command or query]
+3. If you don't need tools:
+   - FINAL_ANSWER: [your direct response]
 
-If you use a tool, STOP after TOOL_USE. Do not provide TOOL_RESULT or FINAL_ANSWER - these will be generated after the tool execution.
+CRITICAL RULES:
+- After TOOL_USE, STOP immediately - do not add anything else
+- The system will execute the tool and provide results automatically
+- Use EXACT format: "TOOL_USE: terminal: ls -la" or "TOOL_USE: web_search: Python tutorial"
+- Never add explanations after TOOL_USE
 
-If you don't need any tools, you can go directly to FINAL_ANSWER after THOUGHT.
+TOOL-SPECIFIC GUIDELINES:
 
-Use the format:
-THOUGHT: [your reasoning]
-TOOL_SELECTION: [if needed, which tool and why]  
-TOOL_USE: [tool_name: simple search query]
-OR
-THOUGHT: [your reasoning]
-FINAL_ANSWER: [direct answer if no tools needed]
+web_search:
+- Format: "TOOL_USE: web_search: simple search terms"
+- Example: "TOOL_USE: web_search: weather forecast London"
 
-IMPORTANT: When using web_search, use simple, clear search terms. For example:
-- Good: "Brazil facts"
-- Good: "Python tutorial"  
-- Bad: "Brazil facts" OR "Brazil overview"
-- Bad: (complex query with operators)
+terminal:
+- Format: "TOOL_USE: terminal: exact_command"
+- Examples: 
+  * "TOOL_USE: terminal: ls -la"
+  * "TOOL_USE: terminal: pwd"
+  * "TOOL_USE: terminal: git status"
+  * "TOOL_USE: terminal: python --version"
 
-Be conversational and helpful in your reasoning."""
+Remember: STOP after TOOL_USE. The system handles tool execution and results."""
     
     def register_tool(self, tool: ToolInterface) -> None:
         """
@@ -303,8 +396,39 @@ Be conversational and helpful in your reasoning."""
                            correlation_id=correlation_id)
         
             try:
+                # Connect to MCP services if not already connected
+                if not self._mcp_connected and self.mcp_services:
+                    yield AgentStep(
+                        step_type=StepType.THOUGHT,
+                        content="Connecting to MCP services...",
+                        timestamp=time.time(),
+                        metadata={"status": "connecting_mcp"}
+                    )
+                    
+                    # Run the async connection in the current thread
+                    import asyncio
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            # We're in an async context, create a task
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                future = executor.submit(asyncio.run, self.connect_mcp_services())
+                                future.result()
+                        else:
+                            # No loop running, we can use run_until_complete
+                            loop.run_until_complete(self.connect_mcp_services())
+                    except RuntimeError:
+                        # Fallback: create new loop in thread
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(asyncio.run, self.connect_mcp_services())
+                            future.result()
+                    
+                    self.logger.info("MCP services connected successfully")
+                
                 # Prepare the conversation
-                system_message = self.system_prompt.format(
+                system_message = self._get_system_prompt().format(
                     tools_description=self.get_tools_description()
                 )
                 
@@ -401,11 +525,19 @@ Be conversational and helpful in your reasoning."""
                             
                             # Yield tool result
                             if tool_result["success"]:
-                                self.logger.info("Tool execution succeeded", tool=tool_name, results_count=len(tool_result.get("results", "")))
+                                # Handle different result formats for different tools
+                                if tool_name == "terminal":
+                                    result_content = tool_result.get("output", "")
+                                    results_count = len(result_content)
+                                else:
+                                    result_content = tool_result.get("results", "")
+                                    results_count = len(result_content) if isinstance(result_content, str) else len(result_content or [])
+                                
+                                self.logger.info("Tool execution succeeded", tool=tool_name, results_count=results_count)
                                 
                                 yield AgentStep(
                                     step_type=StepType.TOOL_RESULT,
-                                    content=tool_result["results"],
+                                    content=result_content,
                                     timestamp=time.time(),
                                     metadata={
                                         "tool": tool_name,
@@ -415,10 +547,16 @@ Be conversational and helpful in your reasoning."""
                                 )
                                 
                                 # Now get the agent's analysis of the tool results
-                                analysis_messages = [
-                                    {"role": "system", "content": "You are analyzing search results. Provide a direct, comprehensive answer based on the search results. Do not repeat the thinking process or use step markers. Just give the final answer."},
-                                    {"role": "user", "content": f"Original query: {user_query}\n\nSearch results:\n{tool_result['results']}\n\nBased on these search results, provide a comprehensive answer to the user's question:"}
-                                ]
+                                if tool_name == "terminal":
+                                    analysis_messages = [
+                                        {"role": "system", "content": "You are analyzing terminal command output. Provide a clear explanation of what the command shows and answer the user's question based on the output."},
+                                        {"role": "user", "content": f"Original query: {user_query}\n\nCommand executed: {tool_query}\nCommand output:\n{result_content}\n\nBased on this terminal output, provide a comprehensive answer to the user's question:"}
+                                    ]
+                                else:
+                                    analysis_messages = [
+                                        {"role": "system", "content": "You are analyzing search results. Provide a direct, comprehensive answer based on the search results. Do not repeat the thinking process or use step markers. Just give the final answer."},
+                                        {"role": "user", "content": f"Original query: {user_query}\n\nSearch results:\n{result_content}\n\nBased on these search results, provide a comprehensive answer to the user's question:"}
+                                    ]
                                 
                                 analysis_response = ""
                                 for chunk in self.llm_service.chat_stream(

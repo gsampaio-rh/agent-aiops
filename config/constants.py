@@ -1,130 +1,127 @@
 """
-UI constants and enums for Agent-AIOps.
-
-This module contains all UI-related constants, enums, and configuration
-that doesn't need to be environment-configurable.
+Configuration constants for the Agent-AIOps application.
 """
 
-from enum import Enum
+from typing import Dict, Any, List
 
+# Agent configuration
+AGENT_CONFIG: Dict[str, Any] = {
+    "max_iterations": 10,
+    "enable_web_search": True,
+    "enable_terminal": True,
+    "show_thinking_process": True,
+    "mcp_servers": ["desktop_commander"]
+}
 
-# UI Configuration
-APP_TITLE = "Ollama Chatbot"
-APP_ICON = "🤖"
-
-# Chat configuration
-MAX_CHAT_HISTORY = 100
-TYPING_ANIMATION_DELAY = 0.02
-
-# Metrics display configuration
-SHOW_DETAILED_METRICS = True
-
-
-class ChatMode(str, Enum):
-    """Chat operation modes."""
-    NORMAL = "normal"
-    AGENT = "agent"
-
-
-class UITheme(str, Enum):
-    """UI theme options."""
-    LIGHT = "light"
-    DARK = "dark"
-    AUTO = "auto"
-
-
-# Model parameters UI configuration
-MODEL_PARAMS_CONFIG = {
-    "temperature": {
-        "min": 0.0,
-        "max": 2.0,
-        "step": 0.1,
-        "help": "Controls randomness in responses. Lower values make output more focused and deterministic."
-    },
-    "max_tokens": {
-        "min": 100,
-        "max": 4000,
-        "step": 100,
-        "help": "Maximum number of tokens to generate in the response."
-    },
-    "top_p": {
-        "min": 0.1,
-        "max": 1.0,
-        "step": 0.05,
-        "help": "Nucleus sampling parameter. Lower values focus on more probable tokens."
+# MCP (Model Context Protocol) configuration
+MCP_CONFIG: Dict[str, Any] = {
+    "desktop_commander": {
+        "enabled": True,
+        "command_timeout": 30,
+        "max_concurrent_commands": 3,
+        "require_confirmation": True,
+        "allowed_directories": [
+            "~/",
+            "/tmp/",
+            "/var/log/",
+            "./",  # Current directory
+            "../"  # Parent directory (limited)
+        ],
+        "security_level": "restricted",  # strict, restricted, permissive
+        "max_output_size": 10000,  # Maximum command output size in characters
+        "connection_retry_attempts": 3,
+        "connection_retry_delay": 2.0  # seconds
     }
 }
 
-
-# Agent configuration
-AGENT_CONFIG = {
-    "max_iterations": 10,
-    "default_tools": ["web_search"],
-    "step_display_delay": 0.5  # seconds between step displays
+# Terminal tool security settings
+TERMINAL_SECURITY: Dict[str, Any] = {
+    "enable_command_validation": True,
+    "require_user_confirmation": True,
+    "log_all_commands": True,
+    "block_dangerous_commands": True,
+    "max_execution_time": 300,  # 5 minutes
+    "allowed_command_patterns": [
+        r"^ls\b",
+        r"^pwd$",
+        r"^cd\s+",
+        r"^cat\s+",
+        r"^grep\s+",
+        r"^find\s+",
+        r"^git\s+",
+        r"^npm\s+",
+        r"^pip\s+",
+        r"^python\d?\s+",
+        r"^node\s+",
+        r"^docker\s+",
+        r"^kubectl\s+"
+    ],
+    "forbidden_command_patterns": [
+        r"\brm\s+-rf\s+/",
+        r"\bsudo\b",
+        r"\bsu\b",
+        r"\bchmod\s+777",
+        r"\bmkfs\b",
+        r"\bformat\b",
+        r"\bshutdown\b",
+        r"\breboot\b"
+    ]
 }
 
+# Search configuration  
+SEARCH_CONFIG: Dict[str, Any] = {
+    "providers": {
+        "duckduckgo": {
+            "enabled": True,
+            "priority": 1,
+            "timeout": 10,
+            "max_results": 5
+        },
+        "searx": {
+            "enabled": True,
+            "priority": 2,
+            "timeout": 15,
+            "max_results": 5,
+            "instances": [
+                "https://search.sapti.me",
+                "https://searx.be",
+                "https://searx.info"
+            ]
+        }
+    },
+    "fallback_enabled": True,
+    "cache_results": True,
+    "cache_ttl": 3600  # 1 hour
+}
 
-# Search providers configuration
-SEARCH_PROVIDERS = {
+# Legacy search providers configuration (for backward compatibility)
+SEARCH_PROVIDERS: Dict[str, Any] = {
     "duckduckgo": {
         "name": "DuckDuckGo",
-        "supports_instant": True,
-        "timeout": 10
+        "enabled": True,
+        "timeout": 10,
+        "max_results": 5,
+        "base_url": "https://duckduckgo.com"
     },
     "searx": {
         "name": "SearX",
-        "supports_instant": False,
-        "timeout": 10
-    },
-    "brave": {
-        "name": "Brave Search",
-        "supports_instant": False,
-        "timeout": 10
-    },
-    "startpage": {
-        "name": "Startpage",
-        "supports_instant": False,
-        "timeout": 10
+        "enabled": True,
+        "timeout": 15,
+        "max_results": 5,
+        "instances": [
+            "https://search.sapti.me",
+            "https://searx.be",
+            "https://searx.info"
+        ]
     }
 }
 
-
-# UI Messages and Labels
-UI_MESSAGES = {
-    "ollama_not_running": "❌ Ollama service is not running",
-    "ollama_start_help": "Please start Ollama: `ollama serve`",
-    "ollama_running": "✅ Ollama is running",
-    "no_models": "No models available. Please install a model:",
-    "agent_not_initialized": "⚠️ Agent not properly initialized",
-    "normal_chat_placeholder": "Type your message here...",
-    "agent_chat_placeholder": "Ask me anything... I can search the web if needed!",
-    "chat_cleared": "🗑️ Chat history cleared",
-    "export_success": "📄 Chat history exported successfully"
-}
-
-
-# Sidebar sections
-SIDEBAR_SECTIONS = {
-    "model": "🤖 Model",
-    "mode": "🧠 Mode", 
-    "tools": "🛠️ Available Tools",
-    "thinking": "💭 Show thinking process",
-    "parameters": "⚙️ Parameters",
-    "session": "💾 Session",
-    "metrics": "📊 Metrics"
-}
-
-
-# Chat mode descriptions
-CHAT_MODE_DESCRIPTIONS = {
-    ChatMode.NORMAL: "Direct conversation with the AI",
-    ChatMode.AGENT: "Watch the AI reason step by step and use tools when needed"
-}
-
-
-# File size limits (in bytes)
-FILE_SIZE_LIMITS = {
-    "log_file": 10 * 1024 * 1024,  # 10MB
-    "export_file": 5 * 1024 * 1024,  # 5MB
-    "upload_file": 2 * 1024 * 1024   # 2MB
+# Tool execution settings
+TOOL_EXECUTION: Dict[str, Any] = {
+    "max_parallel_tools": 2,
+    "tool_timeout": 60,
+    "enable_tool_caching": True,
+    "cache_ttl": 1800,  # 30 minutes
+    "retry_failed_tools": True,
+    "max_retries": 2
 }
