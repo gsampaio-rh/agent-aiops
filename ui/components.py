@@ -288,6 +288,157 @@ def render_agent_step(step: AgentStep):
     render_agent_step_with_state(step, "")
 
 
+def render_tool_permission_card(tool_name: str, query: str, description: str):
+    """
+    Render a tool permission card with Allow/Save & Execute buttons.
+    
+    Args:
+        tool_name: Name of the tool requesting permission
+        query: The query/parameters for the tool
+        description: Description of what the tool does
+    """
+    st.markdown(f"""
+    <div class="tool-permission-card">
+        <div class="permission-header">
+            <span class="permission-icon">🔧</span>
+            <span class="permission-title">Tool Permission Required</span>
+        </div>
+        <div class="permission-content">
+            <div class="tool-info">
+                <strong>{tool_name}</strong> wants to execute
+            </div>
+            <div class="tool-description">{description}</div>
+            <div class="tool-query">
+                <strong>Query:</strong> {query}
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Create input field for potentially modifying the query
+    modified_query = st.text_input(
+        "Modify query (optional):",
+        value=query,
+        key="tool_query_input"
+    )
+    
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
+    with col1:
+        if st.button("🚫 Cancel", key="tool_cancel", use_container_width=True):
+            st.session_state.current_request = None
+            st.rerun()
+    
+    with col2:
+        if st.button("✅ Allow", key="tool_allow", use_container_width=True):
+            if st.session_state.current_request:
+                st.session_state.current_request["permission_status"] = "approved"
+                st.session_state.current_request["execution_status"] = "not_started"
+                st.session_state.current_request["query"] = query  # Use original query
+                st.rerun()
+    
+    with col3:
+        if st.button("💾 Save & Execute", key="tool_save_execute", use_container_width=True):
+            if st.session_state.current_request:
+                st.session_state.current_request["permission_status"] = "modified"
+                st.session_state.current_request["execution_status"] = "not_started"
+                st.session_state.current_request["query"] = modified_query  # Use modified query
+                st.rerun()
+
+
+def render_tool_execution_progress(tool_name: str):
+    """
+    Render tool execution progress indicator.
+    
+    Args:
+        tool_name: Name of the tool being executed
+    """
+    with st.spinner(f"🔄 Executing {tool_name}..."):
+        st.markdown(f"""
+        <div class="tool-execution-progress">
+            <div class="execution-header">
+                <span class="execution-icon">🔄</span>
+                <span class="execution-title">Executing {tool_name}...</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+def render_tool_execution_success(tool_name: str, provider: str, duration_ms: int, 
+                                 total_results: int, results: str, config: Dict[str, Any] = None):
+    """
+    Render successful tool execution results card with approval actions.
+    
+    Args:
+        tool_name: Name of the executed tool
+        provider: Provider used (e.g., DuckDuckGo)
+        duration_ms: Execution duration in milliseconds
+        total_results: Number of results returned
+        results: The actual results content
+    """
+    st.markdown(f"""
+    <div class="tool-execution-success">
+        <div class="execution-header">
+            <span class="execution-icon">✅</span>
+            <span class="execution-title">Tool Execution Successful</span>
+        </div>
+        <div class="execution-metadata">
+            <span class="metadata-item">🔧 {tool_name}</span>
+            <span class="metadata-item">🌐 {provider}</span>
+            <span class="metadata-item">⏱️ {duration_ms}ms</span>
+            <span class="metadata-item">📊 {total_results} results</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Scrollable results area
+    with st.expander("📋 View Results", expanded=True):
+        st.markdown(f"""
+        <div class="tool-results-container">
+            <pre class="tool-results">{results}</pre>
+        </div>
+        """, unsafe_allow_html=True)
+    
+
+
+
+def render_tool_execution_failed(tool_name: str, error: str):
+    """
+    Render failed tool execution error card.
+    
+    Args:
+        tool_name: Name of the tool that failed
+        error: Error message
+    """
+    st.markdown(f"""
+    <div class="tool-execution-failed">
+        <div class="execution-header">
+            <span class="execution-icon">❌</span>
+            <span class="execution-title">Tool Execution Failed</span>
+        </div>
+        <div class="error-content">
+            <div class="error-tool">Tool: {tool_name}</div>
+            <div class="error-message">{error}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col2:
+        if st.button("🔄 Retry", key="tool_retry", use_container_width=True):
+            if st.session_state.current_request:
+                st.session_state.current_request["permission_status"] = "pending"
+                st.session_state.current_request["execution_status"] = "not_started"
+                st.session_state.current_request["error"] = None
+                st.rerun()
+    
+    with col3:
+        if st.button("❌ Cancel", key="tool_cancel_error", use_container_width=True):
+            st.session_state.current_request = None
+            st.rerun()
+
+
 def display_chat_interface(config: Dict[str, Any], chat_container):
     """
     Display the main chat interface with messages and agent steps.
@@ -326,6 +477,31 @@ def display_chat_interface(config: Dict[str, Any], chat_container):
                     render_chat_message(item)
                 elif item_type == "step":
                     render_agent_step(item)
+                    
+            # Handle pending finalization first
+            if st.session_state.processing and not st.session_state.current_request and st.session_state.pending_finalization_query:
+                # Import the finalization handler here to avoid circular imports
+                from ui.streamlit_utils import finalize_assistant_response_with_timeline
+                
+                query_to_finalize = st.session_state.pending_finalization_query
+                st.session_state.pending_finalization_query = None  # Clear immediately
+                finalize_assistant_response_with_timeline(query_to_finalize, config, st.container())
+            
+            # Handle active tool execution workflow if exists
+            elif st.session_state.current_request:
+                request = st.session_state.current_request
+                
+                # Import the workflow handler here to avoid circular imports
+                from ui.streamlit_utils import handle_tool_execution_workflow
+                
+                handle_tool_execution_workflow(
+                    request["tool_name"],
+                    request["query"], 
+                    request["description"],
+                    st.session_state.agent,
+                    config,
+                    request.get("original_user_query", "")
+                )
         else:
             # Normal mode - just show messages
             for message in st.session_state.messages:

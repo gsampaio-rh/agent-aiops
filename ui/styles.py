@@ -303,6 +303,198 @@ def get_app_styles() -> str:
         box-shadow: 0 2px 8px rgba(0, 122, 255, 0.15);
     }
     
+    /* Tool execution cards - following Jobs/Ive design principles */
+    .tool-permission-card,
+    .tool-execution-success,
+    .tool-execution-failed,
+    .tool-execution-progress {
+        margin: 1.5rem 0;
+        padding: 1.5rem;
+        border-radius: 16px;
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        background: rgba(248, 249, 250, 0.95);
+        backdrop-filter: blur(20px);
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+        transition: all 0.2s ease;
+    }
+    
+    .tool-permission-card:hover,
+    .tool-execution-success:hover,
+    .tool-execution-failed:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+    }
+    
+    .permission-header,
+    .execution-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    }
+    
+    .permission-icon,
+    .execution-icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+    }
+    
+    .permission-title,
+    .execution-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #1D1D1F;
+        letter-spacing: 0.2px;
+    }
+    
+    .permission-content {
+        margin-bottom: 1rem;
+    }
+    
+    .tool-info {
+        font-size: 1rem;
+        font-weight: 500;
+        color: #1D1D1F;
+        margin-bottom: 0.5rem;
+    }
+    
+    .tool-description {
+        font-size: 0.9rem;
+        color: #424245;
+        margin-bottom: 1rem;
+        line-height: 1.4;
+    }
+    
+    .tool-query {
+        font-size: 0.85rem;
+        color: #86868B;
+        background: rgba(0, 0, 0, 0.02);
+        padding: 0.75rem;
+        border-radius: 8px;
+        font-family: 'SF Mono', Monaco, monospace;
+        border: 1px solid rgba(0, 0, 0, 0.04);
+    }
+    
+    .execution-metadata {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+    
+    .metadata-item {
+        font-size: 0.8rem;
+        color: #424245;
+        background: rgba(0, 0, 0, 0.02);
+        padding: 0.4rem 0.75rem;
+        border-radius: 20px;
+        font-weight: 500;
+        border: 1px solid rgba(0, 0, 0, 0.04);
+    }
+    
+    .error-content {
+        margin-top: 1rem;
+    }
+    
+    .error-tool {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #1D1D1F;
+        margin-bottom: 0.5rem;
+    }
+    
+    .error-message {
+        font-size: 0.85rem;
+        color: #FF3B30;
+        background: rgba(255, 59, 48, 0.05);
+        padding: 0.75rem;
+        border-radius: 8px;
+        border-left: 3px solid #FF3B30;
+        font-family: 'SF Mono', Monaco, monospace;
+    }
+    
+    .tool-results-container {
+        margin-top: 1rem;
+        max-height: 400px;
+        overflow-y: auto;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.02);
+        border: 1px solid rgba(0, 0, 0, 0.04);
+    }
+    
+    .tool-results {
+        font-family: 'SF Mono', Monaco, monospace;
+        font-size: 0.8rem;
+        line-height: 1.5;
+        color: #1D1D1F;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        padding: 1rem;
+        margin: 0;
+        background: transparent;
+        border: none;
+    }
+    
+    /* Tool execution specific styling */
+    .tool-execution-success {
+        border-left: 4px solid #34C759;
+        background: rgba(52, 199, 89, 0.02);
+    }
+    
+    .tool-execution-failed {
+        border-left: 4px solid #FF3B30;
+        background: rgba(255, 59, 48, 0.02);
+    }
+    
+    .tool-execution-progress {
+        border-left: 4px solid #007AFF;
+        background: rgba(0, 122, 255, 0.02);
+    }
+    
+    /* Tool approval interface */
+    .tool-approval-interface {
+        margin: 1.5rem 0;
+        padding: 1rem;
+        border-radius: 12px;
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        background: rgba(248, 249, 250, 0.95);
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    }
+    
+    .approval-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+    
+    .approval-icon {
+        font-size: 1.1rem;
+        margin-right: 0.5rem;
+    }
+    
+    .approval-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #1D1D1F;
+    }
+    
+    /* Results approval section */
+    .results-approval-section {
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid rgba(0, 0, 0, 0.06);
+    }
+    
+    .approval-question {
+        margin-bottom: 1rem;
+        font-size: 0.95rem;
+        color: #1D1D1F;
+        text-align: center;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    }
+    
     /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
