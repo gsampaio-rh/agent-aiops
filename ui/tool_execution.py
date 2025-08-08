@@ -28,45 +28,43 @@ def render_tool_permission_card(tool_name: str, query: str, description: str):
     st.markdown(f"""
     <div class="tool-permission-card">
         <div class="permission-header">
-            <span class="permission-icon">🔧</span>
-            <span class="permission-title">Tool Permission Required</span>
+            <div class="permission-title">🔧 Allow {tool_name}?</div>
         </div>
         <div class="permission-content">
             <div class="tool-info">
-                <strong>{tool_name}</strong> wants to execute
+                {description}
             </div>
-            <div class="tool-description">{description}</div>
             <div class="tool-query">
-                <strong>Query:</strong> {query}
+                📝 {query}
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
-    
+
     # Create input field for potentially modifying the query
     modified_query = st.text_input(
         "Modify query (optional):",
         value=query,
         key="tool_query_input"
     )
-    
-    col1, col2, col3 = st.columns([1, 1, 2])
-    
+
+    col1, col2, col3 = st.columns([1, 1, 1])
+
     with col1:
-        if st.button("🚫 Cancel", key="tool_cancel", use_container_width=True):
-            st.session_state.current_request = None
-            st.rerun()
-    
-    with col2:
-        if st.button("✅ Allow", key="tool_allow", use_container_width=True):
+        if st.button("✅ Allow", key="tool_allow", use_container_width=True, type="primary"):
             if st.session_state.current_request:
                 st.session_state.current_request["permission_status"] = "approved"
                 st.session_state.current_request["execution_status"] = "not_started"
                 st.session_state.current_request["query"] = query  # Use original query
                 st.rerun()
-    
+
+    with col2:
+        if st.button("❌ Cancel", key="tool_cancel", use_container_width=True):
+            st.session_state.current_request = None
+            st.rerun()
+
     with col3:
-        if st.button("💾 Save & Execute", key="tool_save_execute", use_container_width=True):
+        if st.button("✏️ Allow Modified", key="tool_save_execute", use_container_width=True):
             if st.session_state.current_request:
                 st.session_state.current_request["permission_status"] = "modified"
                 st.session_state.current_request["execution_status"] = "not_started"
@@ -267,7 +265,7 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
         col1, col2, col3 = st.columns([2, 1.5, 1.5])
         
         with col1:
-            if st.button("✅ Accept & Continue", key="tool_accept", use_container_width=True, type="primary"):
+            if st.button("✅ Accept", key="tool_accept", use_container_width=True, type="primary"):
                 if st.session_state.current_request:
                     # Accept: Add TOOL_RESULT step to timeline and trigger finalization
                     
@@ -307,7 +305,7 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
                     st.rerun()
         
         with col2:
-            if st.button("🔄 Retry with Different Query", key="tool_retry_query", use_container_width=True):
+            if st.button("🔄 Retry", key="tool_retry_query", use_container_width=True):
                 if st.session_state.current_request:
                     # Retry: Reset to pending state
                     st.session_state.current_request["permission_status"] = "pending"
@@ -317,7 +315,7 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
                     st.rerun()
         
         with col3:
-            if st.button("❌ Reject & Answer Without Tool", key="tool_reject", use_container_width=True):
+            if st.button("❌ Reject", key="tool_reject", use_container_width=True):
                 if st.session_state.current_request:
                     # Reject: Add TOOL_RESULT step showing rejection and trigger finalization without tools
                     

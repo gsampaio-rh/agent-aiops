@@ -256,125 +256,258 @@ def get_app_styles() -> str:
         color: #424245;
     }
     
-    /* Input styling - More refined */
+    /* Input styling - Consistent with permission card */
     .stTextInput > div > div > input,
     .stChatInput > div > div > input {
-        border-radius: 24px;
-        border: 1.5px solid rgba(0, 0, 0, 0.08);
-        padding: 1rem 1.5rem;
-        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-        font-size: 1rem;
-        background: rgba(255, 255, 255, 0.9);
-        backdrop-filter: blur(20px);
+        border-radius: 8px;
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        padding: 0.75rem 1rem;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif !important;
+        font-size: 0.9rem;
+        font-weight: 500;
+        background: rgba(255, 255, 255, 0.95);
         transition: all 0.2s ease;
+        letter-spacing: 0.1px;
+    }
+    
+    .tool-permission-card .stTextInput > div > div > input {
+        border-radius: 8px;
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        padding: 0.75rem 1rem;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif !important;
+        font-size: 0.9rem;
+        font-weight: 500;
+        background: rgba(255, 255, 255, 0.95);
+        color: #1D1D1F;
     }
     
     .stTextInput > div > div > input:focus,
-    .stChatInput > div > div > input:focus {
-        border-color: #007AFF;
-        box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+    .stChatInput > div > div > input:focus,
+    .tool-permission-card .stTextInput > div > div > input:focus {
+        border-color: #1D1D1F;
+        box-shadow: 0 0 0 2px rgba(29, 29, 31, 0.1);
         outline: none;
+        background: rgba(255, 255, 255, 1);
     }
     
-    /* Button styling - More premium */
+    /* Button styling - Jobs/Ive hierarchy */
     .stButton > button {
-        border-radius: 14px;
-        border: none;
-        background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
-        color: white;
-        font-weight: 600;
+        border-radius: 8px;
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        background: rgba(248, 249, 250, 0.95);
+        color: #1D1D1F;
+        font-weight: 500;
         padding: 0.75rem 1.25rem;
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
         font-size: 0.9rem;
-        letter-spacing: 0.2px;
+        letter-spacing: 0.1px;
         transition: all 0.2s ease;
-        box-shadow: 0 2px 8px rgba(0, 122, 255, 0.15);
+        box-shadow: none;
+    }
+    
+    /* Primary button - the most important action */
+    .stButton > button[kind="primary"] {
+        background: #1D1D1F;
+        color: white;
+        border: 1px solid #1D1D1F;
+        font-weight: 600;
     }
     
     .stButton > button:hover {
-        background: linear-gradient(135deg, #0056CC 0%, #4339B8 100%);
+        background: rgba(0, 0, 0, 0.05);
         transform: translateY(-1px);
-        box-shadow: 0 4px 16px rgba(0, 122, 255, 0.25);
-        border: none;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        border: 1px solid rgba(0, 0, 0, 0.15);
+    }
+    
+    .stButton > button[kind="primary"]:hover {
+        background: #000;
+        color: white;
+        border: 1px solid #000;
     }
     
     .stButton > button:active {
         transform: translateY(0);
-        box-shadow: 0 2px 8px rgba(0, 122, 255, 0.15);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     }
     
-    /* Tool execution cards - following Jobs/Ive design principles */
-    .tool-permission-card,
+    /* Tool permission cards - Distinct with subtle warmth */
+    .tool-permission-card {
+        margin: 2rem 0;
+        padding: 2rem;
+        background: linear-gradient(135deg, rgba(251, 251, 253, 0.95) 0%, rgba(248, 249, 251, 0.95) 100%);
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+        border: none;
+        border-radius: 12px;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+        backdrop-filter: blur(10px);
+    }
+    
+    /* Tool execution cards - subtle distinction */
     .tool-execution-success,
     .tool-execution-failed,
     .tool-execution-progress {
         margin: 1.5rem 0;
-        padding: 1.5rem;
-        border-radius: 16px;
-        border: 1px solid rgba(0, 0, 0, 0.06);
-        background: rgba(248, 249, 250, 0.95);
-        backdrop-filter: blur(20px);
+        padding: 1.25rem;
+        border-radius: 12px;
+        border: none;
+        background: rgba(248, 249, 250, 0.6);
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
-        transition: all 0.2s ease;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+        transition: background 0.3s ease;
     }
     
-    .tool-permission-card:hover,
     .tool-execution-success:hover,
     .tool-execution-failed:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        background: rgba(248, 249, 250, 0.8);
     }
     
-    .permission-header,
+    /* Ultra-minimal permission header */
+    .permission-header {
+        margin-bottom: 1.5rem;
+        text-align: center;
+    }
+    
     .execution-header {
         display: flex;
         align-items: center;
         margin-bottom: 1rem;
-        padding-bottom: 0.75rem;
-        border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.04);
     }
     
-    .permission-icon,
+    .permission-icon {
+        display: none; /* Remove visual clutter */
+    }
+    
     .execution-icon {
-        font-size: 1.25rem;
-        margin-right: 0.75rem;
+        font-size: 1rem;
+        margin-right: 0.5rem;
+        opacity: 0.6;
     }
     
-    .permission-title,
+    /* Clear hierarchy - consistent typography */
+    .permission-title {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif !important;
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #1D1D1F;
+        letter-spacing: -0.02em;
+        margin-bottom: 0.75rem;
+        text-align: center;
+    }
+    
     .execution-title {
-        font-size: 1.1rem;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif !important;
+        font-size: 0.95rem;
         font-weight: 600;
         color: #1D1D1F;
-        letter-spacing: 0.2px;
+        letter-spacing: 0.1px;
     }
     
+    /* Clean content hierarchy */
     .permission-content {
-        margin-bottom: 1rem;
+        text-align: center;
+        margin-bottom: 2rem;
     }
     
     .tool-info {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif !important;
         font-size: 1rem;
         font-weight: 500;
         color: #1D1D1F;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.75rem;
+        line-height: 1.4;
+        max-width: 500px;
+        margin-left: auto;
+        margin-right: auto;
     }
     
     .tool-description {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif !important;
         font-size: 0.9rem;
-        color: #424245;
-        margin-bottom: 1rem;
+        color: #86868B;
+        margin-bottom: 1.5rem;
         line-height: 1.4;
+        max-width: 400px;
+        margin-left: auto;
+        margin-right: auto;
     }
     
+    /* De-emphasize the query - it's not the hero */
     .tool-query {
-        font-size: 0.85rem;
+        font-family: 'SF Mono', Monaco, 'Cascadia Code', Consolas, monospace !important;
+        font-size: 0.8rem;
         color: #86868B;
         background: rgba(0, 0, 0, 0.02);
-        padding: 0.75rem;
+        padding: 0.75rem 1rem;
         border-radius: 8px;
-        font-family: 'SF Mono', Monaco, monospace;
-        border: 1px solid rgba(0, 0, 0, 0.04);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        margin: 0 auto 1rem auto;
+        max-width: 350px;
+        text-align: left;
+        opacity: 0.9;
+        line-height: 1.3;
+        font-weight: 500;
+    }
+    
+    /* Tool permission button hierarchy - consistent styling */
+    .tool-permission-card .stButton > button {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+        padding: 0.75rem 1.25rem !important;
+        font-size: 0.9rem !important;
+        letter-spacing: 0.1px !important;
+        transition: all 0.2s ease !important;
+        border: 1px solid rgba(0, 0, 0, 0.1) !important;
+        text-transform: none !important;
+    }
+    
+    /* Primary Allow button - harmonized with user message blue */
+    .tool-permission-card .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%) !important;
+        color: white !important;
+        border: 1px solid #007AFF !important;
+    }
+    
+    .tool-permission-card .stButton > button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #0056CC 0%, #4339B8 100%) !important;
+        color: white !important;
+        border: 1px solid #0056CC !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 16px rgba(0, 122, 255, 0.25) !important;
+    }
+    
+    /* Cancel button - least prominent */
+    .tool-permission-card .stButton > button:not([kind="primary"]):first-child {
+        background: transparent !important;
+        color: #86868B !important;
+        border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    }
+    
+    .tool-permission-card .stButton > button:not([kind="primary"]):first-child:hover {
+        background: rgba(0, 0, 0, 0.02) !important;
+        color: #1D1D1F !important;
+        border: 1px solid rgba(0, 0, 0, 0.15) !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+    }
+    
+    /* Allow Modified button - secondary */
+    .tool-permission-card .stButton > button:not([kind="primary"]):last-child {
+        background: rgba(248, 249, 250, 0.95) !important;
+        color: #1D1D1F !important;
+        border: 1px solid rgba(0, 0, 0, 0.15) !important;
+    }
+    
+    .tool-permission-card .stButton > button:not([kind="primary"]):last-child:hover {
+        background: rgba(235, 236, 238, 0.95) !important;
+        color: #1D1D1F !important;
+        border: 1px solid rgba(0, 0, 0, 0.2) !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
     }
     
     .execution-metadata {
