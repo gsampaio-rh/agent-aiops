@@ -49,3 +49,13 @@ TYPING_ANIMATION_DELAY = 0.02
 
 # Metrics display configuration
 SHOW_DETAILED_METRICS = True  # Set to False for simplified metrics display
+
+# Logging configuration
+LOGGING_CONFIG = {
+    "level": os.getenv("LOG_LEVEL", "INFO"),
+    "log_dir": os.getenv("LOG_DIR", "logs"),
+    "enable_file_logging": os.getenv("ENABLE_FILE_LOGGING", "true").lower() == "true",
+    "enable_json_logging": os.getenv("ENABLE_JSON_LOGGING", "true").lower() == "true",
+    "max_file_size": int(os.getenv("LOG_MAX_FILE_SIZE", str(10 * 1024 * 1024))),  # 10MB
+    "backup_count": int(os.getenv("LOG_BACKUP_COUNT", "5"))
+}

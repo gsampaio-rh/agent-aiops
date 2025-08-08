@@ -13,6 +13,7 @@ from enum import Enum
 
 from services.ollama_service import OllamaService
 from services.search_service import WebSearchService
+from utils.logger import get_logger, log_performance, log_agent_step, request_context
 
 
 class StepType(Enum):
@@ -126,9 +127,12 @@ class ReactAgent:
         self.model = model
         self.tools = {}
         self.max_iterations = 10
+        self.logger = get_logger(__name__)
         
         # Register default tools
         self.register_tool(WebSearchTool())
+        
+        self.logger.info("Initialized ReactAgent", model=model, tools=list(self.tools.keys()))
         
         # System prompt for the agent
         self.system_prompt = """You are a helpful AI assistant that can reason step by step and use tools when needed.
@@ -243,141 +247,167 @@ Be conversational and helpful in your reasoning."""
         """Process user query and yield steps as they happen."""
         start_time = time.time()
         
-        try:
-            # Prepare the conversation
-            system_message = self.system_prompt.format(
-                tools_description=self.get_tools_description()
-            )
-            
-            messages = [
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": user_query}
-            ]
-            
-            # Yield initial thought step
-            yield AgentStep(
-                step_type=StepType.THOUGHT,
-                content="Let me think about this query...",
-                timestamp=time.time(),
-                metadata={"status": "starting"}
-            )
-            
-            # Get agent response
-            full_response = ""
-            for chunk in self.ollama_service.chat_stream(
-                model=self.model,
-                messages=messages,
-                temperature=kwargs.get("temperature", 0.7),
-                max_tokens=kwargs.get("max_tokens", 1000)
-            ):
-                if chunk.get("content"):
-                    full_response += chunk["content"]
-            
-            # Parse the response into steps
-            parsed_steps = self.parse_agent_response(full_response)
-            
-            # Track if we've already yielded a final answer
-            has_final_answer = any(step.step_type == StepType.FINAL_ANSWER for step in parsed_steps)
-            
-            # Yield each step and execute tools if needed
-            for step in parsed_steps:
-                # Skip FINAL_ANSWER from initial response if we have tools to execute
-                if step.step_type == StepType.FINAL_ANSWER and any(s.step_type == StepType.TOOL_USE for s in parsed_steps):
-                    continue
-                    
-                yield step
+        # Create a request context for correlation tracking
+        with request_context(user_query=user_query, model=self.model) as correlation_id:
+            self.logger.info("Starting agent query processing", 
+                           query=user_query[:100] + "..." if len(user_query) > 100 else user_query,
+                           model=self.model,
+                           correlation_id=correlation_id)
+        
+            try:
+                # Prepare the conversation
+                system_message = self.system_prompt.format(
+                    tools_description=self.get_tools_description()
+                )
                 
-                # If this is a tool use step, execute the tool
-                if step.step_type == StepType.TOOL_USE:
-                    # Parse tool usage
-                    content = step.content.strip()
-                    if ':' in content:
-                        tool_part, query_part = content.split(':', 1)
-                        tool_name = tool_part.strip()
-                        tool_query = query_part.strip()
+                messages = [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_query}
+                ]
+                
+                # Yield initial thought step
+                yield AgentStep(
+                    step_type=StepType.THOUGHT,
+                    content="Let me think about this query...",
+                    timestamp=time.time(),
+                    metadata={"status": "starting"}
+                )
+                
+                # Get agent response
+                full_response = ""
+                for chunk in self.ollama_service.chat_stream(
+                    model=self.model,
+                    messages=messages,
+                    temperature=kwargs.get("temperature", 0.7),
+                    max_tokens=kwargs.get("max_tokens", 1000)
+                ):
+                    if chunk.get("content"):
+                        full_response += chunk["content"]
+                
+                # Parse the response into steps
+                parsed_steps = self.parse_agent_response(full_response)
+                
+                # Log parsed steps
+                self.logger.debug("Parsed agent steps", step_count=len(parsed_steps), 
+                                step_types=[step.step_type.value for step in parsed_steps])
+                
+                # Track if we've already yielded a final answer
+                has_final_answer = any(step.step_type == StepType.FINAL_ANSWER for step in parsed_steps)
+                
+                # Yield each step and execute tools if needed
+                for step in parsed_steps:
+                    # Log each step
+                    log_agent_step(step.step_type.value, step.content)
+                    
+                    # Skip FINAL_ANSWER from initial response if we have tools to execute
+                    if step.step_type == StepType.FINAL_ANSWER and any(s.step_type == StepType.TOOL_USE for s in parsed_steps):
+                        continue
                         
-                        # Clean up the query - remove quotes and OR operators for better search
-                        tool_query = tool_query.replace('"', '').replace(' OR ', ' ')
-                        if tool_query.startswith('(') and tool_query.endswith(')'):
-                            tool_query = tool_query[1:-1]
-                        
-                        # Execute the tool with unique ID to prevent duplicates
-                        import uuid
-                        execution_id = str(uuid.uuid4())[:8]
-                        
-                        yield AgentStep(
-                            step_type=StepType.TOOL_USE,
-                            content=f"Executing {tool_name} with query: {tool_query}",
-                            timestamp=time.time(),
-                            metadata={"tool": tool_name, "query": tool_query, "status": "executing", "execution_id": execution_id}
-                        )
-                        
-                        tool_result = self.execute_tool(tool_name, tool_query)
-                        
-                        # If DuckDuckGo fails, automatically try SearX as fallback
-                        if not tool_result["success"] and tool_name == "web_search":
+                    yield step
+                    
+                    # If this is a tool use step, execute the tool
+                    if step.step_type == StepType.TOOL_USE:
+                        # Parse tool usage
+                        content = step.content.strip()
+                        if ':' in content:
+                            tool_part, query_part = content.split(':', 1)
+                            tool_name = tool_part.strip()
+                            tool_query = query_part.strip()
+                            
+                            # Clean up the query - remove quotes and OR operators for better search
+                            tool_query = tool_query.replace('"', '').replace(' OR ', ' ')
+                            if tool_query.startswith('(') and tool_query.endswith(')'):
+                                tool_query = tool_query[1:-1]
+                            
+                            # Execute the tool with unique ID to prevent duplicates
+                            import uuid
+                            execution_id = str(uuid.uuid4())[:8]
+                            
+                            self.logger.info("Executing tool", tool=tool_name, query=tool_query, execution_id=execution_id)
+                            
                             yield AgentStep(
                                 step_type=StepType.TOOL_USE,
-                                content=f"DuckDuckGo failed, trying SearX with query: {tool_query}",
+                                content=f"Executing {tool_name} with query: {tool_query}",
                                 timestamp=time.time(),
-                                metadata={"tool": "web_search", "provider": "searx", "query": tool_query, "status": "fallback", "execution_id": execution_id}
+                                metadata={"tool": tool_name, "query": tool_query, "status": "executing", "execution_id": execution_id}
                             )
                             
-                            # Try with SearX provider
-                            fallback_result = self.execute_tool(tool_name, tool_query, provider="searx")
-                            if fallback_result["success"]:
-                                tool_result = fallback_result
-                        
-                        # Yield tool result
-                        if tool_result["success"]:
-                            yield AgentStep(
-                                step_type=StepType.TOOL_RESULT,
-                                content=tool_result["results"],
-                                timestamp=time.time(),
-                                metadata={
-                                    "tool": tool_name,
-                                    "success": True,
-                                    **tool_result.get("metadata", {})
-                                }
-                            )
+                            tool_result = self.execute_tool(tool_name, tool_query)
                             
-                            # Now get the agent's analysis of the tool results
-                            analysis_messages = [
-                                {"role": "system", "content": "You are analyzing search results. Provide a direct, comprehensive answer based on the search results. Do not repeat the thinking process or use step markers. Just give the final answer."},
-                                {"role": "user", "content": f"Original query: {user_query}\n\nSearch results:\n{tool_result['results']}\n\nBased on these search results, provide a comprehensive answer to the user's question:"}
-                            ]
+                            # If DuckDuckGo fails, automatically try SearX as fallback
+                            if not tool_result["success"] and tool_name == "web_search":
+                                self.logger.warning("Primary search failed, trying fallback", tool=tool_name, error=tool_result.get("error"))
+                                
+                                yield AgentStep(
+                                    step_type=StepType.TOOL_USE,
+                                    content=f"DuckDuckGo failed, trying SearX with query: {tool_query}",
+                                    timestamp=time.time(),
+                                    metadata={"tool": "web_search", "provider": "searx", "query": tool_query, "status": "fallback", "execution_id": execution_id}
+                                )
+                                
+                                # Try with SearX provider
+                                fallback_result = self.execute_tool(tool_name, tool_query, provider="searx")
+                                if fallback_result["success"]:
+                                    tool_result = fallback_result
+                                    self.logger.info("Fallback search succeeded")
                             
-                            analysis_response = ""
-                            for chunk in self.ollama_service.chat_stream(
-                                model=self.model,
-                                messages=analysis_messages,
-                                temperature=kwargs.get("temperature", 0.7),
-                                max_tokens=kwargs.get("max_tokens", 1000)
-                            ):
-                                if chunk.get("content"):
-                                    analysis_response += chunk["content"]
-                            
-                            yield AgentStep(
-                                step_type=StepType.FINAL_ANSWER,
-                                content=analysis_response,
-                                timestamp=time.time(),
-                                metadata={"total_time_ms": round((time.time() - start_time) * 1000)}
-                            )
-                        else:
-                            yield AgentStep(
-                                step_type=StepType.ERROR,
-                                content=f"Tool execution failed: {tool_result['error']}",
-                                timestamp=time.time(),
-                                metadata={"tool": tool_name, "error": tool_result["error"]}
-                            )
-            
-        except Exception as e:
-            yield AgentStep(
-                step_type=StepType.ERROR,
-                content=f"Agent processing failed: {str(e)}",
-                timestamp=time.time(),
-                metadata={"error": str(e)}
-            )
+                            # Yield tool result
+                            if tool_result["success"]:
+                                self.logger.info("Tool execution succeeded", tool=tool_name, results_count=len(tool_result.get("results", "")))
+                                
+                                yield AgentStep(
+                                    step_type=StepType.TOOL_RESULT,
+                                    content=tool_result["results"],
+                                    timestamp=time.time(),
+                                    metadata={
+                                        "tool": tool_name,
+                                        "success": True,
+                                        **tool_result.get("metadata", {})
+                                    }
+                                )
+                                
+                                # Now get the agent's analysis of the tool results
+                                analysis_messages = [
+                                    {"role": "system", "content": "You are analyzing search results. Provide a direct, comprehensive answer based on the search results. Do not repeat the thinking process or use step markers. Just give the final answer."},
+                                    {"role": "user", "content": f"Original query: {user_query}\n\nSearch results:\n{tool_result['results']}\n\nBased on these search results, provide a comprehensive answer to the user's question:"}
+                                ]
+                                
+                                analysis_response = ""
+                                for chunk in self.ollama_service.chat_stream(
+                                    model=self.model,
+                                    messages=analysis_messages,
+                                    temperature=kwargs.get("temperature", 0.7),
+                                    max_tokens=kwargs.get("max_tokens", 1000)
+                                ):
+                                    if chunk.get("content"):
+                                        analysis_response += chunk["content"]
+                                
+                                total_time_ms = round((time.time() - start_time) * 1000)
+                                self.logger.info("Agent query processing completed", total_time_ms=total_time_ms)
+                                
+                                yield AgentStep(
+                                    step_type=StepType.FINAL_ANSWER,
+                                    content=analysis_response,
+                                    timestamp=time.time(),
+                                    metadata={"total_time_ms": total_time_ms}
+                                )
+                            else:
+                                self.logger.error("Tool execution failed", tool=tool_name, error=tool_result.get("error"))
+                                yield AgentStep(
+                                    step_type=StepType.ERROR,
+                                    content=f"Tool execution failed: {tool_result['error']}",
+                                    timestamp=time.time(),
+                                    metadata={"tool": tool_name, "error": tool_result["error"]}
+                                )
+                
+            except Exception as e:
+                self.logger.exception("Agent processing failed", error=str(e))
+                yield AgentStep(
+                    step_type=StepType.ERROR,
+                    content=f"Agent processing failed: {str(e)}",
+                    timestamp=time.time(),
+                    metadata={"error": str(e)}
+                )
     
     def process_query(self, user_query: str, **kwargs) -> List[AgentStep]:
         """Process user query and return all steps."""

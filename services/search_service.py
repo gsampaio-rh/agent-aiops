@@ -11,6 +11,7 @@ from urllib.parse import quote_plus, urljoin
 import json
 import re
 from bs4 import BeautifulSoup
+from utils.logger import get_logger, log_performance, log_search_query
 
 
 class SearchResult:
@@ -59,6 +60,7 @@ class WebSearchService:
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         })
         self.timeout = 10  # Shorter timeout to prevent hanging
+        self.logger = get_logger(__name__)
         
         self.providers = {
             "duckduckgo": {
@@ -87,6 +89,7 @@ class WebSearchService:
         """Get list of available search providers."""
         return list(self.providers.keys())
     
+    @log_performance("web_search")
     def search(self, query: str, provider: str = "duckduckgo", 
                max_results: int = 10, **kwargs) -> Dict[str, Any]:
         """
@@ -103,6 +106,8 @@ class WebSearchService:
         """
         start_time = time.time()
         
+        self.logger.info("Starting web search", query=query, provider=provider, max_results=max_results)
+        
         try:
             if provider not in self.providers:
                 raise ValueError(f"Unknown provider: {provider}. Available: {list(self.providers.keys())}")
@@ -115,25 +120,41 @@ class WebSearchService:
             # Convert SearchResult objects to dicts
             results_dict = [r.to_dict() if isinstance(r, SearchResult) else r for r in results]
             
+            search_time_ms = round((time.time() - start_time) * 1000)
+            
+            # Log search completion
+            log_search_query(provider, query, len(results_dict), search_time_ms)
+            self.logger.info("Web search completed", 
+                           provider=provider, 
+                           results_count=len(results_dict),
+                           search_time_ms=search_time_ms)
+            
             return {
                 "query": query,
                 "provider": provider,
                 "provider_name": provider_info["name"],
                 "results": results_dict,
                 "total_results": len(results_dict),
-                "search_time_ms": round((time.time() - start_time) * 1000),
+                "search_time_ms": search_time_ms,
                 "timestamp": time.time(),
                 "status": "success"
             }
             
         except Exception as e:
+            search_time_ms = round((time.time() - start_time) * 1000)
+            self.logger.error("Web search failed", 
+                            provider=provider, 
+                            query=query,
+                            error=str(e),
+                            search_time_ms=search_time_ms)
+            
             return {
                 "query": query,
                 "provider": provider,
                 "provider_name": self.providers.get(provider, {}).get("name", provider),
                 "results": [],
                 "total_results": 0,
-                "search_time_ms": round((time.time() - start_time) * 1000),
+                "search_time_ms": search_time_ms,
                 "timestamp": time.time(),
                 "status": "error",
                 "error": str(e)

@@ -10,6 +10,13 @@ and business logic in a clean, maintainable architecture.
 
 import streamlit as st
 
+# Setup logging before importing other modules
+from config.settings import LOGGING_CONFIG
+from utils.logger import setup_logging, get_logger, log_user_interaction
+
+# Initialize logging with configuration
+setup_logging(**LOGGING_CONFIG)
+
 # Import our modular components
 from ui.styles import apply_app_styles
 from ui.components import render_sidebar, display_chat_interface
@@ -32,6 +39,9 @@ def main():
     4. Chat interface display
     5. User input handling
     """
+    logger = get_logger(__name__)
+    logger.info("Starting Agent-AIOps application")
+    
     # 1. Setup page configuration
     setup_page_config()
     
@@ -45,6 +55,7 @@ def main():
     config = render_sidebar()
     
     if not config:
+        logger.error("Configuration failed - Ollama not available or no models")
         st.error("Please ensure Ollama is running and models are available.")
         st.stop()
     
@@ -61,6 +72,8 @@ def main():
                   else "Type your message here...")
     
     if prompt := st.chat_input(placeholder, key="chat_input"):
+        log_user_interaction("chat_input", config.get("agent_mode", "normal"), prompt_length=len(prompt))
+        logger.info("User input received", mode=config.get("agent_mode", "normal"), prompt_length=len(prompt))
         handle_user_input(prompt, config, chat_container)
 
 
