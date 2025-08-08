@@ -306,7 +306,7 @@ def get_app_styles() -> str:
     /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
+    # header {visibility: hidden;}
 </style>
 """
 
