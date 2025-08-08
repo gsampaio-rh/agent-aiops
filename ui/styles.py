@@ -453,7 +453,7 @@ def get_app_styles() -> str:
     }
     
     /* Tool permission button hierarchy - consistent styling */
-    .tool-permission-card .stButton > button {
+    .stButton > button {
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif !important;
         font-weight: 600 !important;
         border-radius: 8px !important;
@@ -466,13 +466,13 @@ def get_app_styles() -> str:
     }
     
     /* Primary Allow button - harmonized with user message blue */
-    .tool-permission-card .stButton > button[kind="primary"] {
+    .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%) !important;
         color: white !important;
         border: 1px solid #007AFF !important;
     }
     
-    .tool-permission-card .stButton > button[kind="primary"]:hover {
+    .stButton > button[kind="primary"]:hover {
         background: linear-gradient(135deg, #0056CC 0%, #4339B8 100%) !important;
         color: white !important;
         border: 1px solid #0056CC !important;
@@ -481,13 +481,13 @@ def get_app_styles() -> str:
     }
     
     /* Cancel button - least prominent */
-    .tool-permission-card .stButton > button:not([kind="primary"]):first-child {
+    .stButton > button:not([kind="primary"]):first-child {
         background: transparent !important;
         color: #86868B !important;
         border: 1px solid rgba(0, 0, 0, 0.1) !important;
     }
     
-    .tool-permission-card .stButton > button:not([kind="primary"]):first-child:hover {
+    .stButton > button:not([kind="primary"]):first-child:hover {
         background: rgba(0, 0, 0, 0.02) !important;
         color: #1D1D1F !important;
         border: 1px solid rgba(0, 0, 0, 0.15) !important;
@@ -496,13 +496,13 @@ def get_app_styles() -> str:
     }
     
     /* Allow Modified button - secondary */
-    .tool-permission-card .stButton > button:not([kind="primary"]):last-child {
+    .stButton > button:not([kind="primary"]):last-child {
         background: rgba(248, 249, 250, 0.95) !important;
         color: #1D1D1F !important;
         border: 1px solid rgba(0, 0, 0, 0.15) !important;
     }
     
-    .tool-permission-card .stButton > button:not([kind="primary"]):last-child:hover {
+    .stButton > button:not([kind="primary"]):last-child:hover {
         background: rgba(235, 236, 238, 0.95) !important;
         color: #1D1D1F !important;
         border: 1px solid rgba(0, 0, 0, 0.2) !important;
