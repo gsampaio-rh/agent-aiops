@@ -213,8 +213,8 @@ def process_agent_query(prompt: str, config: Dict[str, Any], chat_container):
             conversation_history=conversation_history,
             **config["params"]
         ):
-            # Check if this is a tool use step - if so, intercept it
-            if step.step_type == StepType.TOOL_USE:
+            # Check if this is a tool execution request - if so, intercept it for user permission
+            if step.step_type == StepType.TOOL_EXECUTION_REQUEST:
                 agent_steps.append(step)
                 
                 # Extract tool info from metadata (preferred) or parse from content

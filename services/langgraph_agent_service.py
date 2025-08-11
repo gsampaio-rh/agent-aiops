@@ -349,59 +349,26 @@ class LangGraphAgent(AgentServiceInterface):
         }
         state["agent_steps"].append(step_data)
         
-        # Actually execute the tool
-        if tool_name in self.tools:
-            try:
-                tool = self.tools[tool_name]
-                result = tool.execute(tool_query)
-                
-                # Create tool result step
-                if result.get("success", True):
-                    result_content = result.get("results", result.get("output", str(result)))
-                    result_step = {
-                        "step_type": "tool_result",
-                        "content": str(result_content),
-                        "timestamp": time.time(),
-                        "metadata": {
-                            "node": "tool_execution",
-                            "tool": tool_name,
-                            "success": True,
-                            **result.get("metadata", {})
-                        }
-                    }
-                else:
-                    result_step = {
-                        "step_type": "error",
-                        "content": f"Tool execution failed: {result.get('error', 'Unknown error')}",
-                        "timestamp": time.time(),
-                        "metadata": {
-                            "node": "tool_execution",
-                            "tool": tool_name,
-                            "success": False,
-                            "error": result.get("error")
-                        }
-                    }
-                
-                state["agent_steps"].append(result_step)
-                
-            except Exception as e:
-                self.logger.error("Tool execution failed", tool=tool_name, query=tool_query, error=str(e))
-                error_step = {
-                    "step_type": "error",
-                    "content": f"Tool execution error: {str(e)}",
-                    "timestamp": time.time(),
-                    "metadata": {"node": "tool_execution", "tool": tool_name, "error": str(e)}
-                }
-                state["agent_steps"].append(error_step)
-        else:
-            # Tool not found
-            error_step = {
-                "step_type": "error",
-                "content": f"Tool '{tool_name}' not available. Available tools: {list(self.tools.keys())}",
-                "timestamp": time.time(),
-                "metadata": {"node": "tool_execution", "tool": tool_name, "available_tools": list(self.tools.keys())}
+        # Log tool execution request for UI workflow (DO NOT execute automatically)
+        self.logger.info(f"Tool execution requested by agent: {tool_name} with query: {tool_query}")
+        
+        # Create a tool execution request step instead of executing directly
+        tool_request_step = {
+            "step_type": "tool_execution_request",
+            "content": f"Requesting user permission to execute {tool_name} with query: {tool_query}",
+            "timestamp": time.time(),
+            "metadata": {
+                "node": "tool_execution",
+                "tool": tool_name,
+                "query": tool_query,
+                "requires_user_permission": True,
+                "status": "pending_permission"
             }
-            state["agent_steps"].append(error_step)
+        }
+        state["agent_steps"].append(tool_request_step)
+        
+        # Note: Tool execution will be handled by the UI workflow after user permission
+        # The agent workflow will pause here and wait for the UI to handle the tool execution
         
         state["current_step"] = "tool_execution"
         state["iteration_count"] += 1

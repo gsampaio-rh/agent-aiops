@@ -16,6 +16,7 @@ class StepType(Enum):
     THOUGHT = "thought"
     TOOL_SELECTION = "tool_selection"
     TOOL_USE = "tool_use"
+    TOOL_EXECUTION_REQUEST = "tool_execution_request"
     TOOL_RESULT = "tool_result"
     FINAL_ANSWER = "final_answer"
     ERROR = "error"
