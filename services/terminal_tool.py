@@ -27,6 +27,24 @@ class CommandValidator:
         'sudo', 'su', 'chmod', 'chown', 'passwd', 'useradd', 'userdel'
     }
     
+    # Interactive commands that tend to hang (need special handling)
+    INTERACTIVE_COMMANDS: Set[str] = {
+        'openssl', 'ssh', 'scp', 'sftp', 'ftp', 'telnet', 'nc', 'netcat',
+        'mysql', 'psql', 'redis-cli', 'mongo', 'sqlite3',
+        'vim', 'vi', 'emacs', 'nano', 'less', 'more', 'htop', 'top',
+        'ping', 'curl', 'wget', 'nmap', 'tcpdump', 'wireshark'
+    }
+    
+    # Commands that should have automatic timeout flags added
+    TIMEOUT_ENHANCED_COMMANDS: Dict[str, str] = {
+        'ping': '-c 4',  # Limit to 4 pings
+        'curl': '--max-time 10',  # 10 second timeout
+        'wget': '--timeout=10',  # 10 second timeout
+        'openssl': '',  # Will be handled specially
+        'nc': '-w 5',  # 5 second timeout
+        'netcat': '-w 5'  # 5 second timeout
+    }
+    
     # Commands that are allowed for basic operations
     SAFE_COMMANDS: Set[str] = {
         'ls', 'dir', 'pwd', 'cd', 'cat', 'head', 'tail', 'less', 'more',
@@ -82,12 +100,63 @@ class CommandValidator:
             if re.search(pattern, command, re.IGNORECASE):
                 return False, "high", f"Command contains dangerous pattern"
         
+        # Check for interactive commands that might hang
+        if base_command in cls.INTERACTIVE_COMMANDS:
+            return True, "high", f"Interactive command '{base_command}' - may hang without proper timeout"
+        
         # Check for safe commands
         if base_command in cls.SAFE_COMMANDS:
             return True, "low", "Command is in safe list"
         
         # Unknown command - requires caution
         return True, "medium", f"Unknown command '{base_command}' - proceed with caution"
+    
+    @classmethod
+    def enhance_command_with_timeout(cls, command: str) -> str:
+        """
+        Enhance commands with appropriate timeout flags to prevent hanging.
+        
+        Args:
+            command: Original command
+            
+        Returns:
+            str: Enhanced command with timeout flags
+        """
+        parts = command.strip().split()
+        if not parts:
+            return command
+        
+        base_command = parts[0].split('/')[-1]  # Handle full paths
+        
+        # Add timeout flags for known problematic commands
+        if base_command in cls.TIMEOUT_ENHANCED_COMMANDS:
+            timeout_flag = cls.TIMEOUT_ENHANCED_COMMANDS[base_command]
+            if timeout_flag:
+                # Insert timeout flag after the command
+                enhanced_parts = [parts[0]] + timeout_flag.split() + parts[1:]
+                return ' '.join(enhanced_parts)
+        
+        # Special handling for openssl s_client
+        if base_command == 'openssl' and len(parts) > 1 and parts[1] == 's_client':
+            # Add -timeout and -verify_return_error flags
+            if '-timeout' not in command and '-connect_timeout' not in command:
+                return command + ' -timeout 10 -verify_return_error'
+        
+        # Special handling for curl without timeout
+        if base_command == 'curl' and '--max-time' not in command and '--timeout' not in command:
+            return command + ' --max-time 10'
+        
+        return command
+    
+    @classmethod
+    def is_interactive_command(cls, command: str) -> bool:
+        """Check if a command is likely to be interactive and hang."""
+        parts = command.strip().split()
+        if not parts:
+            return False
+        
+        base_command = parts[0].split('/')[-1]  # Handle full paths
+        return base_command in cls.INTERACTIVE_COMMANDS
 
 
 class TerminalTool(ToolInterface):
@@ -115,6 +184,39 @@ class TerminalTool(ToolInterface):
             await self.mcp_client.connect()
         elif not self.mcp_client.is_connected():
             await self.mcp_client.connect()
+        
+        # Configure the MCP server to block highly problematic commands
+        await self._configure_mcp_safety()
+    
+    async def _configure_mcp_safety(self) -> None:
+        """Configure MCP server safety settings to prevent hanging commands."""
+        try:
+            # Get current configuration
+            config_result = await self.mcp_client.execute_tool("get_config", {})
+            current_config = self._payload_from_result(config_result) or {}
+            
+            # Commands that should be blocked at the MCP server level
+            blocked_commands = [
+                "ssh", "scp", "sftp", "ftp", "telnet", 
+                "mysql", "psql", "redis-cli", "mongo",
+                "vim", "vi", "emacs", "nano", "less", "more"
+            ]
+            
+            # Get existing blocked commands and merge
+            existing_blocked = current_config.get("blockedCommands", [])
+            new_blocked = list(set(existing_blocked + blocked_commands))
+            
+            # Update server configuration
+            await self.mcp_client.execute_tool("set_config_value", {
+                "key": "blockedCommands",
+                "value": new_blocked
+            })
+            
+            self.logger.info(f"Updated MCP server blocked commands: {new_blocked}")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to configure MCP server safety settings: {e}")
+            # Continue execution - this is not critical
     
     def _log_execution(self, command: str, result: Dict[str, Any]) -> None:
         """Log command execution for history tracking."""
@@ -160,6 +262,24 @@ class TerminalTool(ToolInterface):
                 }
                 self._log_execution(command, result)
                 return result
+                
+            # Check if this is an interactive command that might hang
+            is_interactive = CommandValidator.is_interactive_command(command)
+            original_command = command
+            
+            # Enhance command with timeout flags for interactive commands
+            if is_interactive:
+                command = CommandValidator.enhance_command_with_timeout(command)
+                if command != original_command:
+                    self.logger.info(f"Enhanced interactive command with timeout: {original_command} -> {command}")
+            
+            # Log validation and enhancement result
+            self.logger.info(f"Command validated and processed", 
+                           command=command, 
+                           original_command=original_command,
+                           risk_level=risk_level, 
+                           is_interactive=is_interactive,
+                           enhanced=command != original_command)
             
             # Log validation success
             self.logger.info(f"Command validated: {command}",
@@ -297,13 +417,23 @@ class TerminalTool(ToolInterface):
             
             self.logger.info(f"Started process session: {session_id} (pid={pid})")
             
-            # Poll for output until process completes
+            # Poll for output until process completes (with overall timeout protection)
             output_parts = []
             stderr_parts = []
             exit_code = None
             poll_interval_ms = 500
             
-            while True:
+            # Calculate overall timeout (default 30s, but shorter for interactive commands)
+            overall_timeout = kwargs.get("timeout", 30)
+            if is_interactive:
+                # Use shorter timeout for interactive commands 
+                overall_timeout = min(overall_timeout, 15)
+            
+            start_time = time.time()
+            max_iterations = max(10, int(overall_timeout * 2))  # At least 10 iterations, normally 2 per second
+            iteration_count = 0
+            
+            while iteration_count < max_iterations:
                 # Read process output
                 read_result = await self.mcp_client.execute_tool("read_process_output", {
                     "sessionId": session_id,
@@ -336,6 +466,41 @@ class TerminalTool(ToolInterface):
                 if exit_code is not None or is_running is False or completed:
                     break
                 
+                # Check overall timeout
+                elapsed_time = time.time() - start_time
+                if elapsed_time >= overall_timeout:
+                    self.logger.warning(f"Command timed out after {elapsed_time:.1f}s, force terminating", 
+                                      command=command, session_id=session_id, elapsed_time=elapsed_time)
+                    
+                    # Try to force terminate the process
+                    try:
+                        await self.mcp_client.execute_tool("force_terminate", {"sessionId": session_id})
+                        self.logger.info("Successfully force terminated hanging process", session_id=session_id)
+                    except Exception as e:
+                        self.logger.error(f"Failed to force terminate process: {e}", session_id=session_id)
+                    
+                    # Return with timeout error
+                    combined_output = "".join(output_parts)
+                    if stderr_parts:
+                        combined_output += f"\n[stderr]\n{''.join(stderr_parts)}"
+                    
+                    return {
+                        "success": False,
+                        "output": combined_output,
+                        "error": f"Command timed out after {elapsed_time:.1f} seconds",
+                        "metadata": {
+                            "command": original_command,
+                            "enhanced_command": command,
+                            "exit_code": -1,
+                            "session_id": session_id,
+                            "pid": pid,
+                            "timeout": True,
+                            "elapsed_time": elapsed_time,
+                            "is_interactive": is_interactive
+                        }
+                    }
+                
+                iteration_count += 1
                 # Brief sleep to avoid overwhelming the server
                 await asyncio.sleep(poll_interval_ms / 1000)
             

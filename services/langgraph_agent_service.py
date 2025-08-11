@@ -594,9 +594,15 @@ CRITICAL RULES:
 
 EXAMPLES:
 - "What are the health benefits of meditation?" → TOOL_USE: web_search: health benefits of meditation
-- "Check TLS certificate expiration" → TOOL_USE: terminal: openssl s_client -connect localhost:8443 -showcerts
+- "Check TLS certificate expiration" → TOOL_USE: terminal: echo | openssl s_client -connect localhost:8443 -servername localhost
 - "What's the weather today?" → TOOL_USE: web_search: weather today
 - "What is 2+2?" → FINAL_ANSWER: 4
+
+IMPORTANT TERMINAL USAGE GUIDELINES:
+- For TLS/SSL checks: Use "echo | openssl s_client" instead of interactive openssl
+- For network testing: Use "curl --max-time 10" or "ping -c 4" instead of unlimited commands
+- For file viewing: Use "cat" or "head -20" instead of interactive viewers like "less"
+- Avoid: ssh, vim, nano, mysql, psql - these are interactive and will hang
 
 Remember: Use tools for facts and current information. STOP after TOOL_USE."""
     
@@ -643,7 +649,14 @@ CRITICAL RULES:
 EXAMPLES:
 - User mentions their name, later asks "What's my name?" → FINAL_ANSWER: [reference the name from conversation]
 - "What are the latest news?" → TOOL_USE: web_search: latest news today
+- "Check TLS certificate expiration" → TOOL_USE: terminal: echo | openssl s_client -connect localhost:8443 -servername localhost
 - "Tell me more about that topic we discussed" → FINAL_ANSWER: [reference previous topic discussion]
+
+IMPORTANT TERMINAL USAGE GUIDELINES:
+- For TLS/SSL checks: Use "echo | openssl s_client" instead of interactive openssl
+- For network testing: Use "curl --max-time 10" or "ping -c 4" instead of unlimited commands
+- For file viewing: Use "cat" or "head -20" instead of interactive viewers like "less"
+- Avoid: ssh, vim, nano, mysql, psql - these are interactive and will hang
 
 Remember: Use conversation memory for context, tools for current information."""
     
