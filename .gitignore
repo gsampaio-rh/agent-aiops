@@ -143,3 +143,6 @@ logs/*.json
 
 # Streamlit
 .streamlit/
+
+# User Stories
+user_stories/
