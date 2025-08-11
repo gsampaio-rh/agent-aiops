@@ -186,13 +186,13 @@ class LangGraphAgent(AgentServiceInterface):
         self.workflow = workflow.compile(checkpointer=self.memory)
     
     def _reasoning_node(self, state: AgentState) -> AgentState:
-        """Node for agent reasoning and planning."""
+        """Node for agent reasoning and planning with conversation memory."""
         self.logger.debug("Executing reasoning node")
         
         # Create reasoning step
         step_data = {
             "step_type": "thought",
-            "content": "Analyzing the user's request and determining next steps...",
+            "content": "Analyzing the user's request and conversation history...",
             "timestamp": time.time(),
             "metadata": {"node": "reasoning"}
         }
@@ -200,23 +200,25 @@ class LangGraphAgent(AgentServiceInterface):
         state["agent_steps"].append(step_data)
         state["current_step"] = "reasoning"
         
-        # Generate reasoning using LLM
+        # Generate reasoning using LLM with full conversation context
         messages = state["messages"]
         
-        # Create system prompt that encourages tool usage
-        system_prompt = self._get_system_prompt()
+        # Create system prompt that includes memory instructions
+        system_prompt = self._get_system_prompt_with_memory()
         
-        # Get LLM response for reasoning
-        reasoning_messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": state["user_query"]}
-        ]
+        # Build complete conversation history for context
+        reasoning_messages = [{"role": "system", "content": system_prompt}]
         
-        # Add conversation history
-        for msg in messages[:-1]:  # Exclude current message
-            if hasattr(msg, 'content') and hasattr(msg, 'type'):
-                role = "user" if msg.type == "human" else "assistant"
-                reasoning_messages.append({"role": role, "content": msg.content})
+        # Add full conversation history (excluding the current query message)
+        conversation_history = self._build_conversation_history(messages)
+        reasoning_messages.extend(conversation_history)
+        
+        # Add current user query
+        reasoning_messages.append({"role": "user", "content": state["user_query"]})
+        
+        self.logger.debug("Built reasoning context", 
+                         total_messages=len(reasoning_messages),
+                         history_length=len(conversation_history))
         
         reasoning_response = ""
         for chunk in self.llm_service.chat_stream(
@@ -365,11 +367,20 @@ class LangGraphAgent(AgentServiceInterface):
                 tool_results.append(step.get("content", ""))
         
         if tool_results:
-            # Generate response based on tool results
+            # Generate response based on tool results with conversation context
             synthesis_messages = [
-                {"role": "system", "content": "You are analyzing tool results. Provide a direct, comprehensive answer based on the tool results. Do not repeat the thinking process or use step markers. Just give the final answer."},
-                {"role": "user", "content": f"Original query: {state['user_query']}\n\nTool results:\n{chr(10).join(tool_results)}\n\nBased on these results, provide a comprehensive answer to the user's question:"}
+                {"role": "system", "content": "You are analyzing tool results. Use conversation history for context and provide a comprehensive answer based on the tool results. Reference previous conversation when relevant."}
             ]
+            
+            # Add conversation history for context
+            conversation_history = self._build_conversation_history(state["messages"])
+            synthesis_messages.extend(conversation_history)
+            
+            # Add tool results and query
+            synthesis_messages.append({
+                "role": "user", 
+                "content": f"Original query: {state['user_query']}\n\nTool results:\n{chr(10).join(tool_results)}\n\nBased on these results and our conversation history, provide a comprehensive answer:"
+            })
             
             final_response = ""
             for chunk in self.llm_service.chat_stream(
@@ -383,11 +394,18 @@ class LangGraphAgent(AgentServiceInterface):
             
             content = final_response
         else:
-            # No tool results, generate direct response
+            # No tool results, generate direct response with conversation context
+            # Build complete message history including conversation context
             direct_messages = [
-                {"role": "system", "content": "You are a helpful AI assistant. Provide a direct answer to the user's question."},
-                {"role": "user", "content": state["user_query"]}
+                {"role": "system", "content": "You are a helpful AI assistant. Use conversation history to provide contextual responses. Reference previous information when relevant."}
             ]
+            
+            # Add conversation history for context
+            conversation_history = self._build_conversation_history(state["messages"])
+            direct_messages.extend(conversation_history)
+            
+            # Add current query
+            direct_messages.append({"role": "user", "content": state["user_query"]})
             
             direct_response = ""
             for chunk in self.llm_service.chat_stream(
@@ -475,6 +493,96 @@ EXAMPLES:
 - "What is 2+2?" → FINAL_ANSWER: 4
 
 Remember: Use tools for facts and current information. STOP after TOOL_USE."""
+    
+    def _get_system_prompt_with_memory(self) -> str:
+        """Get the system prompt with conversation memory instructions."""
+        tools_description = self.get_tools_description()
+        
+        return f"""You are a helpful AI assistant with access to tools and conversation memory. You can reference previous parts of our conversation to provide contextual responses.
+
+CONVERSATION MEMORY:
+- You have access to the full conversation history
+- Reference previous topics, user details, and context when relevant
+- Maintain continuity across the conversation
+- Remember user preferences, names, and information shared earlier
+
+You MUST use tools when the user asks for:
+- Current information, facts, news, or recent developments
+- Information that might change over time
+- Specific factual queries that benefit from web search
+- Technical questions that need up-to-date information
+
+Available tools:
+{tools_description}
+
+IMPORTANT: Follow this exact pattern for ALL responses:
+
+1. THOUGHT: Think about what the user is asking, reference any relevant conversation history, and determine if you need tools
+2. If you need a tool (for current info, facts, news, specific queries):
+   - TOOL_SELECTION: Choose which tool and explain why
+   - TOOL_USE: [tool_name]: [exact command or query]
+3. If you don't need tools (can answer from memory/knowledge or conversation context):
+   - FINAL_ANSWER: [your response using conversation context when relevant]
+
+CRITICAL RULES:
+- Always consider conversation history when formulating responses
+- Reference previous information when relevant (e.g., "As you mentioned earlier...")
+- For new factual queries: USE WEB_SEARCH
+- After TOOL_USE, STOP immediately - do not add anything else
+- Use EXACT format: "TOOL_USE: web_search: health benefits of meditation"
+- Never add explanations after TOOL_USE
+
+EXAMPLES:
+- User mentions their name, later asks "What's my name?" → FINAL_ANSWER: [reference the name from conversation]
+- "What are the latest news?" → TOOL_USE: web_search: latest news today
+- "Tell me more about that topic we discussed" → FINAL_ANSWER: [reference previous topic discussion]
+
+Remember: Use conversation memory for context, tools for current information."""
+    
+    def _build_conversation_history(self, messages: List[BaseMessage], max_messages: int = None) -> List[Dict[str, str]]:
+        """Build conversation history from LangGraph messages for context."""
+        history = []
+        
+        # Convert LangGraph messages to simple format, excluding the current query
+        for msg in messages[:-1]:  # Exclude current message to avoid duplication
+            if hasattr(msg, 'content') and hasattr(msg, 'type'):
+                if msg.type == "human":
+                    history.append({"role": "user", "content": msg.content})
+                elif msg.type == "ai":
+                    history.append({"role": "assistant", "content": msg.content})
+        
+        # Apply sliding window to prevent token limit issues
+        if max_messages is None:
+            # Use default from configuration
+            from config.constants import AGENT_CONFIG
+            max_messages = AGENT_CONFIG.get("max_conversation_history", 20)
+        
+        if len(history) > max_messages:
+            # Keep the most recent messages
+            history = history[-max_messages:]
+            
+            # Log that we're truncating history
+            self.logger.debug("Truncated conversation history", 
+                            original_length=len(messages) - 1,
+                            truncated_length=len(history),
+                            max_messages=max_messages)
+        
+        return history
+    
+    def _format_conversation_summary(self, history: List[Dict[str, str]]) -> str:
+        """Format conversation history into a readable summary for context."""
+        if not history:
+            return "No previous conversation history."
+        
+        summary_parts = []
+        summary_parts.append(f"Conversation history ({len(history)} messages):")
+        
+        for i, msg in enumerate(history[-10:]):  # Show last 10 for summary
+            role = msg["role"].title()
+            content = msg["content"][:100] + "..." if len(msg["content"]) > 100 else msg["content"]
+            summary_parts.append(f"{i+1}. {role}: {content}")
+        
+        return "\n".join(summary_parts)
     
     def register_tool(self, tool: ToolInterface) -> None:
         """Register a new tool with the agent."""

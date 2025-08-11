@@ -203,9 +203,14 @@ def process_agent_query(prompt: str, config: Dict[str, Any], chat_container):
             from ui.agent_display import render_sophisticated_thinking_indicator
             render_sophisticated_thinking_indicator("Agent is thinking")
         
+        # Prepare conversation history for context
+        from utils.chat_utils import get_conversation_context_for_agent
+        conversation_history = get_conversation_context_for_agent()
+        
         # Stream agent steps in real-time, but intercept tool usage
         for step in st.session_state.agent.process_query_stream(
             prompt,
+            conversation_history=conversation_history,
             **config["params"]
         ):
             # Check if this is a tool use step - if so, intercept it

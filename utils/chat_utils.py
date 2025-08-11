@@ -168,6 +168,41 @@ def format_timestamp(timestamp: float, format_type: str = "time") -> str:
         return time.strftime("%H:%M:%S", time.localtime(timestamp))
 
 
+def get_conversation_memory_status() -> Dict[str, Any]:
+    """Get current conversation memory status."""
+    from config.constants import AGENT_CONFIG
+    
+    total_messages = len(st.session_state.messages) if st.session_state.messages else 0
+    max_memory = AGENT_CONFIG.get("max_conversation_history", 20)
+    memory_usage = min(total_messages, max_memory)
+    memory_percentage = (memory_usage / max_memory) * 100 if max_memory > 0 else 0
+    
+    return {
+        "total_messages": total_messages,
+        "max_memory": max_memory,
+        "memory_usage": memory_usage,
+        "memory_percentage": memory_percentage,
+        "is_memory_active": st.session_state.get("agent_mode", False) and total_messages > 0,
+        "is_truncated": total_messages > max_memory
+    }
+
+
+def get_conversation_context_for_agent() -> List[Dict[str, str]]:
+    """Get conversation history formatted for agent processing."""
+    if not st.session_state.messages:
+        return []
+    
+    # Convert all messages except the last one (current prompt) to agent format
+    conversation_history = []
+    for msg in st.session_state.messages[:-1]:
+        conversation_history.append({
+            "role": msg["role"],
+            "content": msg["content"]
+        })
+    
+    return conversation_history
+
+
 def export_chat_history() -> str:
     """Export chat history as text."""
     if not st.session_state.messages:
@@ -175,6 +210,11 @@ def export_chat_history() -> str:
     
     export_text = f"Chat Export - {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
     export_text += "=" * 50 + "\n\n"
+    
+    # Add memory status info
+    memory_status = get_conversation_memory_status()
+    export_text += f"Memory Status: {memory_status['memory_usage']}/{memory_status['max_memory']} messages\n"
+    export_text += f"Memory Active: {'Yes' if memory_status['is_memory_active'] else 'No'}\n\n"
     
     for message in st.session_state.messages:
         role = message["role"].title()

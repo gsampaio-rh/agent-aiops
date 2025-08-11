@@ -143,7 +143,7 @@ def render_sidebar() -> Dict[str, Any]:
                             mime="text/plain"
                         )
             
-            # Chat statistics
+            # Chat statistics and memory info
             if st.session_state.messages:
                 st.subheader("📊 Statistics")
                 total_messages = len(st.session_state.messages)
@@ -156,6 +156,24 @@ def render_sidebar() -> Dict[str, Any]:
                     st.metric("User", user_messages)
                 with col2:
                     st.metric("Assistant", assistant_messages)
+                
+                # Memory status indicator
+                st.subheader("🧠 Memory Status")
+                from config.constants import AGENT_CONFIG
+                max_memory = AGENT_CONFIG.get("max_conversation_history", 20)
+                memory_usage = min(total_messages, max_memory)
+                
+                # Memory indicator with visual bar
+                memory_percentage = (memory_usage / max_memory) * 100
+                st.metric("Memory Usage", f"{memory_usage}/{max_memory}")
+                st.progress(memory_percentage / 100, text=f"{memory_percentage:.0f}% of memory used")
+                
+                if st.session_state.agent_mode and total_messages > 0:
+                    st.success("🔄 Conversation memory active")
+                    st.caption("Agent remembers your conversation history")
+                elif total_messages > 0:
+                    st.info("💬 Chat history available")
+                    st.caption("Switch to Agent mode for memory features")
             
             return {
                 "model": current_model,
