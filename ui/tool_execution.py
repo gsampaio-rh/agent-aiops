@@ -13,7 +13,7 @@ All components follow Jobs/Ive design principles with minimalist aesthetics.
 import streamlit as st
 import time
 from typing import Dict, Any
-from services.agent_service import AgentStep, StepType
+from core.models.agent import AgentStep, StepType
 
 
 def _extract_command_output(raw_output: str) -> str:

@@ -14,7 +14,7 @@ import streamlit as st
 import time
 from typing import Dict, Any
 
-from services.agent_service import AgentStep, StepType
+from core.models.agent import AgentStep, StepType
 from utils.chat_utils import add_message
 from ui.agent_display import render_agent_step_with_state
 from ui.chat_display import render_chat_message

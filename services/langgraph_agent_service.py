@@ -66,6 +66,74 @@ class LangChainToolAdapter(BaseTool):
             return f"Tool execution error: {str(e)}"
 
 
+class WebSearchTool(ToolInterface):
+    """Web search tool for the agent."""
+    
+    def __init__(self):
+        self.name = "web_search"
+        self.description = "Search the web for current information, facts, news, and general knowledge. Use this when you need up-to-date information or when the user asks about current events, recent developments, or specific factual information that might not be in your training data."
+    
+    def execute(self, query: str, **kwargs) -> Dict[str, Any]:
+        """Execute web search."""
+        provider = kwargs.get("provider", "duckduckgo")
+        max_results = kwargs.get("max_results", 5)
+        
+        try:
+            # Import here to avoid circular imports
+            from services.search_service import WebSearchService
+            from core.models.search import SearchQuery
+            
+            search_service = WebSearchService()
+            
+            # Create search query
+            search_query = SearchQuery(
+                query=query,
+                provider=provider,
+                max_results=max_results
+            )
+            
+            # Use new interface method
+            result = search_service.search(search_query)
+            
+            if result.is_successful() and result.results:
+                # Use the built-in formatting method
+                formatted_results = result.get_formatted_results(max_results)
+                
+                return {
+                    "success": True,
+                    "results": formatted_results,
+                    "metadata": {
+                        "provider": result.provider_name,
+                        "total_results": result.total_results,
+                        "search_time_ms": result.search_time_ms
+                    }
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": result.error or "No results found",
+                    "metadata": {
+                        "provider": result.provider_name,
+                        "total_results": result.total_results,
+                        "search_time_ms": result.search_time_ms
+                    }
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Search failed: {str(e)}",
+                "metadata": {"exception": str(e)}
+            }
+    
+    def get_tool_info(self) -> ToolInfo:
+        """Get tool information for the agent."""
+        return ToolInfo(
+            name=self.name,
+            description=self.description
+        )
+
+
 class LangGraphAgent(AgentServiceInterface):
     """LangGraph-based agent with workflow management."""
     

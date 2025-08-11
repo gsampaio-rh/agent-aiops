@@ -10,7 +10,7 @@ All components follow Jobs/Ive design principles with minimalist aesthetics.
 """
 
 import streamlit as st
-from services.agent_service import AgentStep, StepType
+from core.models.agent import AgentStep, StepType
 
 
 def render_agent_step_with_state(step: AgentStep, state: str = ""):
