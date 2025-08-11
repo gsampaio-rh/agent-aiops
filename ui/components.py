@@ -16,7 +16,12 @@ All components follow Jobs/Ive design principles with minimalist aesthetics.
 # Re-export all components for backwards compatibility
 from ui.sidebar import render_sidebar
 from ui.chat_display import render_chat_message, display_chat_interface
-from ui.agent_display import render_agent_step_with_state, render_agent_step
+from ui.agent_display import (
+    render_agent_step_with_state, 
+    render_agent_step,
+    render_sophisticated_thinking_indicator,
+    render_agent_steps_with_timeline
+)
 from ui.tool_execution import (
     render_tool_permission_card, 
     render_tool_execution_progress,
@@ -38,6 +43,8 @@ __all__ = [
     # Agent display components
     'render_agent_step_with_state',
     'render_agent_step',
+    'render_sophisticated_thinking_indicator',
+    'render_agent_steps_with_timeline',
     
     # Tool execution components
     'render_tool_permission_card',

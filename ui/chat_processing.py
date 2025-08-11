@@ -197,14 +197,10 @@ def process_agent_query(prompt: str, config: Dict[str, Any], chat_container):
     st.session_state.agent_processing = True
     
     try:
-        # Show thinking indicator
+        # Show sophisticated thinking indicator
         with thinking_placeholder.container():
-            st.markdown("""
-            <div class="thinking-indicator">
-                <span>Agent is thinking</span>
-                <span class="thinking-dots"></span>
-            </div>
-            """, unsafe_allow_html=True)
+            from ui.agent_display import render_sophisticated_thinking_indicator
+            render_sophisticated_thinking_indicator("Agent is thinking")
         
         # Stream agent steps in real-time, but intercept tool usage
         for step in st.session_state.agent.process_query_stream(

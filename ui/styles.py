@@ -132,15 +132,65 @@ def get_app_styles() -> str:
         line-height: 1.4;
         display: flex;
         align-items: baseline;
+        position: relative;
     }
     
     .thinking-step.current {
         opacity: 1;
         transform: translateX(2px);
+        animation: thinkingBreath 2.5s ease-in-out infinite;
+    }
+    
+    /* Fallback for older browsers or if animations cause issues */
+    @media (prefers-reduced-motion: reduce) {
+        .thinking-step.current {
+            animation: none;
+            opacity: 1;
+        }
+        
+        .thinking-step.current::before {
+            animation: none;
+        }
+        
+        .thinking-indicator {
+            animation: none;
+        }
+        
+        .thinking-indicator::before {
+            animation: none;
+        }
+    }
+    
+    .thinking-step.current::before {
+        content: '';
+        position: absolute;
+        left: -8px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 3px;
+        height: 3px;
+        background: #007AFF;
+        border-radius: 50%;
+        animation: thinkingPulse 2s ease-in-out infinite;
+        z-index: 1;
     }
     
     .thinking-step.completed {
         opacity: 0.5;
+    }
+    
+    .thinking-step.completed::before {
+        content: '';
+        position: absolute;
+        left: -8px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 3px;
+        height: 3px;
+        background: #34C759;
+        border-radius: 50%;
+        opacity: 0.6;
+        z-index: 1;
     }
     
     .step-label {
@@ -159,12 +209,36 @@ def get_app_styles() -> str:
     .step-tool-use .step-label { color: #FF9500; }
     .step-tool-result .step-label { color: #34C759; }
     .step-final-answer .step-label { color: #1D1D1F; font-weight: 800; }
+    .step-error .step-label { color: #FF3B30; }
     
     .step-content {
         color: #1D1D1F;
         font-weight: 400;
         flex: 1;
         word-wrap: break-word;
+    }
+    
+    .step-processing-icon {
+        margin-left: 0.5rem;
+        font-size: 0.8rem;
+        opacity: 0.7;
+        animation: processingFloat 2s ease-in-out infinite;
+    }
+    
+    /* Simplified processing state styling */
+    .thinking-step.processing {
+        position: relative;
+    }
+    
+    .thinking-step.processing::after {
+        content: '⚡';
+        position: absolute;
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 0.8rem;
+        opacity: 0.6;
+        animation: processingFloat 2s ease-in-out infinite;
     }
     
     .step-metadata {
@@ -176,7 +250,7 @@ def get_app_styles() -> str:
         opacity: 0.8;
     }
     
-    /* Thinking indicator - minimal animation */
+    /* Thinking indicator - Jobs/Ive minimal elegance */
     .thinking-indicator {
         display: flex;
         align-items: center;
@@ -184,6 +258,18 @@ def get_app_styles() -> str:
         color: #86868B;
         margin: 0.8rem 0;
         font-weight: 500;
+        padding: 0.75rem 0;
+        animation: indicatorBreath 3s ease-in-out infinite;
+    }
+    
+    .thinking-indicator::before {
+        content: '';
+        width: 4px;
+        height: 4px;
+        background: #007AFF;
+        border-radius: 50%;
+        margin-right: 0.75rem;
+        animation: indicatorPulse 2s ease-in-out infinite;
     }
     
     .thinking-dots {
@@ -201,6 +287,68 @@ def get_app_styles() -> str:
         33% { content: '..'; }
         66% { content: '...'; }
         100% { content: '.'; }
+    }
+    
+    /* Jobs/Ive inspired breathing animation for active thinking */
+    @keyframes thinkingBreath {
+        0%, 100% { 
+            opacity: 1;
+            transform: translateX(2px);
+        }
+        50% { 
+            opacity: 0.85;
+            transform: translateX(2px);
+        }
+    }
+    
+    /* Subtle pulsing indicator for current step */
+    @keyframes thinkingPulse {
+        0%, 100% { 
+            opacity: 1;
+            transform: translateY(-50%) scale(1);
+        }
+        50% { 
+            opacity: 0.4;
+            transform: translateY(-50%) scale(1.2);
+        }
+    }
+    
+    /* Breathing animation for the main thinking indicator */
+    @keyframes indicatorBreath {
+        0%, 100% { 
+            opacity: 1;
+            transform: scale(1);
+        }
+        50% { 
+            opacity: 0.7;
+            transform: scale(1.001);
+        }
+    }
+    
+    /* Pulse animation for indicator dot */
+    @keyframes indicatorPulse {
+        0%, 100% { 
+            opacity: 1;
+            transform: scale(1);
+            background: #007AFF;
+        }
+        50% { 
+            opacity: 0.3;
+            transform: scale(1.5);
+            background: #5AC8FA;
+        }
+    }
+    
+    /* Floating animation for processing icons */
+    @keyframes processingFloat {
+        0%, 100% { 
+            opacity: 0.7;
+            transform: translateY(0px);
+        }
+        50% { 
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
     }
     
     /* Streaming effect for agent steps */
