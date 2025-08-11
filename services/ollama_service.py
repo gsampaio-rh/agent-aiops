@@ -114,13 +114,14 @@ class OllamaService(LLMServiceInterface):
         
         start_time = time.time()
         
-        # Log the request
+        # Log the request with detailed message tracking
         log_ollama_request(
             model=model,
             message_count=len(messages),
             temperature=temperature,
             max_tokens=max_tokens,
-            top_p=top_p
+            top_p=top_p,
+            messages=messages
         )
         
         self.logger.info("Starting Ollama chat stream", 
@@ -188,14 +189,15 @@ class OllamaService(LLMServiceInterface):
                                     input_tokens = chunk.get('prompt_eval_count', 0)
                                     output_tokens = chunk.get('eval_count', 0)
                                     
-                                    # Log the final response metrics
+                                    # Log the final response metrics with full response
                                     log_ollama_response(
                                         model=model,
                                         tokens_generated=output_tokens,
                                         duration_ms=round((time.time() - start_time) * 1000),
                                         input_tokens=input_tokens,
                                         total_duration=chunk.get('total_duration', 0),
-                                        eval_duration=chunk.get('eval_duration', 0)
+                                        eval_duration=chunk.get('eval_duration', 0),
+                                        full_response=full_response
                                     )
                                     
                                     self.logger.info("Ollama chat stream completed",

@@ -13,6 +13,7 @@ import streamlit as st
 # Setup logging before importing other modules
 from config.settings import LOGGING_CONFIG
 from utils.logger import setup_logging, get_logger, log_user_interaction
+from utils.system_metrics import start_system_monitoring, log_current_metrics
 
 # Initialize logging with configuration
 setup_logging(**LOGGING_CONFIG)
@@ -41,6 +42,14 @@ def main():
     """
     logger = get_logger(__name__)
     logger.info("Starting Agent-AIOps application")
+    
+    # 0. Start system monitoring (non-blocking)
+    try:
+        start_system_monitoring(interval=60.0)  # Collect metrics every minute
+        log_current_metrics()  # Log initial metrics
+        logger.info("System monitoring started")
+    except Exception as e:
+        logger.warning("Failed to start system monitoring", error=str(e))
     
     # 1. Setup page configuration
     setup_page_config()

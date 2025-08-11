@@ -27,7 +27,12 @@ from core.interfaces.llm_service import LLMServiceInterface
 from core.models.agent import AgentStep, AgentResponse, StepType, ToolInfo
 from core.exceptions import AgentError, AgentProcessingError, ErrorCodes
 from services.ollama_service import OllamaService
-from utils.logger import get_logger, log_performance, log_agent_step, request_context
+from utils.logger import (
+    get_logger, log_performance, log_agent_step, request_context,
+    log_llm_conversation, log_agent_workflow, log_tool_execution,
+    create_request_tracer, log_request_step, log_request_complete,
+    log_error_with_context
+)
 
 
 class AgentState(TypedDict):
@@ -75,6 +80,7 @@ class WebSearchTool(ToolInterface):
     
     def execute(self, query: str, **kwargs) -> Dict[str, Any]:
         """Execute web search."""
+        start_time = time.time()
         provider = kwargs.get("provider", "duckduckgo")
         max_results = kwargs.get("max_results", 5)
         
@@ -94,12 +100,13 @@ class WebSearchTool(ToolInterface):
             
             # Use new interface method
             result = search_service.search(search_query)
+            duration_ms = round((time.time() - start_time) * 1000)
             
             if result.is_successful() and result.results:
                 # Use the built-in formatting method
                 formatted_results = result.get_formatted_results(max_results)
                 
-                return {
+                result_data = {
                     "success": True,
                     "results": formatted_results,
                     "metadata": {
@@ -108,8 +115,22 @@ class WebSearchTool(ToolInterface):
                         "search_time_ms": result.search_time_ms
                     }
                 }
+                
+                # Log successful tool execution
+                log_tool_execution(
+                    tool_name="web_search",
+                    action="search",
+                    query=query,
+                    result=result_data,
+                    duration_ms=duration_ms,
+                    success=True,
+                    provider=result.provider_name,
+                    results_count=result.total_results
+                )
+                
+                return result_data
             else:
-                return {
+                result_data = {
                     "success": False,
                     "error": result.error or "No results found",
                     "metadata": {
@@ -119,12 +140,43 @@ class WebSearchTool(ToolInterface):
                     }
                 }
                 
+                # Log failed search (no results)
+                log_tool_execution(
+                    tool_name="web_search",
+                    action="search",
+                    query=query,
+                    result=result_data,
+                    duration_ms=duration_ms,
+                    success=False,
+                    provider=result.provider_name,
+                    error_reason="no_results"
+                )
+                
+                return result_data
+                
         except Exception as e:
-            return {
+            duration_ms = round((time.time() - start_time) * 1000)
+            
+            result_data = {
                 "success": False,
                 "error": f"Search failed: {str(e)}",
                 "metadata": {"exception": str(e)}
             }
+            
+            # Log exception in tool execution
+            log_tool_execution(
+                tool_name="web_search",
+                action="search",
+                query=query,
+                result=result_data,
+                duration_ms=duration_ms,
+                success=False,
+                provider=provider,
+                error_type=type(e).__name__,
+                error_message=str(e)
+            )
+            
+            return result_data
     
     def get_tool_info(self) -> ToolInfo:
         """Get tool information for the agent."""
@@ -680,12 +732,22 @@ Remember: Use conversation memory for context, tools for current information."""
     def process_query_stream(self, user_query: str, conversation_history: List[Dict[str, str]] = None, **kwargs) -> Iterator[AgentStep]:
         """Process user query and yield steps as they happen."""
         start_time = time.time()
+        correlation_id = create_request_tracer(user_query, self.model)
         
-        with request_context(user_query=user_query, model=self.model) as correlation_id:
+        with request_context(user_query=user_query, model=self.model) as _:
             self.logger.info("Starting LangGraph agent query processing", 
                            query=user_query[:100] + "..." if len(user_query) > 100 else user_query,
                            model=self.model,
                            correlation_id=correlation_id)
+            
+            # Log conversation context if provided
+            if conversation_history:
+                log_llm_conversation(
+                    conversation_id=correlation_id,
+                    messages=conversation_history + [{"role": "user", "content": user_query}],
+                    model=self.model,
+                    action="agent_processing"
+                )
             
             try:
                 # Prepare initial state
@@ -717,6 +779,21 @@ Remember: Use conversation memory for context, tools for current information."""
                 for event in self.workflow.stream(initial_state, config):
                     self.logger.debug("LangGraph event", event=event)
                     
+                    # Log workflow steps for detailed tracking
+                    for node_name, state_data in event.items():
+                        log_agent_workflow(
+                            workflow_id=correlation_id,
+                            step_name=node_name,
+                            step_type=node_name,
+                            step_data=state_data if isinstance(state_data, dict) else {"state": str(state_data)}
+                        )
+                        
+                        log_request_step(
+                            correlation_id=correlation_id,
+                            step=f"workflow_{node_name}",
+                            data={"node": node_name, "state_keys": list(state_data.keys()) if isinstance(state_data, dict) else []}
+                        )
+                    
                     # Extract agent steps from the current state
                     current_state = event.get("reasoning") or event.get("tool_selection") or event.get("tool_execution") or event.get("final_answer")
                     
@@ -735,17 +812,49 @@ Remember: Use conversation memory for context, tools for current information."""
                                 metadata=step_data.get("metadata", {})
                             )
                             
-                            log_agent_step(step.step_type.value, step.content)
+                            # Enhanced logging for agent steps
+                            log_agent_step(step.step_type.value, step.content, 
+                                         correlation_id=correlation_id,
+                                         step_index=i,
+                                         **step.metadata)
                             yield step
                             yielded_steps += 1
                 
+                # Log completion
+                total_duration = round((time.time() - start_time) * 1000)
+                log_request_complete(
+                    correlation_id=correlation_id,
+                    total_duration_ms=total_duration,
+                    success=True,
+                    steps_generated=yielded_steps
+                )
+                
             except Exception as e:
+                # Enhanced error logging with full context
+                error_context = {
+                    "user_query": user_query,
+                    "model": self.model,
+                    "conversation_history_length": len(conversation_history) if conversation_history else 0,
+                    "available_tools": list(self.tools.keys()),
+                    "correlation_id": correlation_id
+                }
+                
+                log_error_with_context(e, error_context, "agent_processing")
+                
+                total_duration = round((time.time() - start_time) * 1000)
+                log_request_complete(
+                    correlation_id=correlation_id,
+                    total_duration_ms=total_duration,
+                    success=False,
+                    error=str(e)
+                )
+                
                 self.logger.exception("LangGraph agent processing failed", error=str(e))
                 yield AgentStep(
                     step_type=StepType.ERROR,
                     content=f"Agent processing failed: {str(e)}",
                     timestamp=time.time(),
-                    metadata={"error": str(e)}
+                    metadata={"error": str(e), "correlation_id": correlation_id}
                 )
     
     def process_query(self, user_query: str, conversation_history: List[Dict[str, str]] = None, **kwargs) -> AgentResponse:
