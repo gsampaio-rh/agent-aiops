@@ -11,6 +11,8 @@ AGENT_CONFIG: Dict[str, Any] = {
     "enable_terminal": True,
     "show_thinking_process": True,
     "mcp_servers": ["desktop_commander"],
+    "enable_conversation_memory": True,
+    "max_conversation_history": 20,  # Maximum messages to keep in context
 }
 
 # MCP (Model Context Protocol) configuration

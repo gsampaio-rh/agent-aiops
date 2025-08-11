@@ -37,6 +37,11 @@ def render_agent_step_with_state(step: AgentStep, state: str = ""):
             "class": "step-tool-use",
             "icon": "⚡"
         },
+        StepType.TOOL_EXECUTION_REQUEST: {
+            "label": "Request",
+            "class": "step-tool-request",
+            "icon": "🔐"
+        },
         StepType.TOOL_RESULT: {
             "label": "Result",
             "class": "step-tool-result",

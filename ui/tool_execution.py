@@ -14,6 +14,13 @@ import streamlit as st
 import time
 from typing import Dict, Any
 from core.models.agent import AgentStep, StepType
+from utils.logger import (
+    get_logger, log_user_interaction, log_tool_execution,
+    create_request_tracer, log_request_step
+)
+
+# Initialize logger for this module
+logger = get_logger(__name__)
 
 
 def _extract_command_output(raw_output: str) -> str:
@@ -91,6 +98,16 @@ def render_tool_permission_card(tool_name: str, query: str, description: str):
     with col1:
         if st.button("✅ Allow", key="tool_allow", use_container_width=True, type="primary"):
             if st.session_state.current_request:
+                # Log user permission approval
+                logger.info(f"User approved tool execution: {tool_name} with query: {query[:100]}...")
+                log_user_interaction(
+                    action="tool_permission_approved",
+                    mode="tool_execution",
+                    tool_name=tool_name,
+                    query=query,
+                    decision="approved"
+                )
+                
                 st.session_state.current_request["permission_status"] = "approved"
                 st.session_state.current_request["execution_status"] = "not_started"
                 st.session_state.current_request["query"] = query  # Use original query
@@ -98,12 +115,33 @@ def render_tool_permission_card(tool_name: str, query: str, description: str):
 
     with col2:
         if st.button("❌ Cancel", key="tool_cancel", use_container_width=True):
+            # Log user permission denial
+            logger.info(f"User cancelled tool execution: {tool_name}")
+            log_user_interaction(
+                action="tool_permission_denied",
+                mode="tool_execution",
+                tool_name=tool_name,
+                query=query,
+                decision="cancelled"
+            )
+            
             st.session_state.current_request = None
             st.rerun()
 
     with col3:
         if st.button("✏️ Allow Modified", key="tool_save_execute", use_container_width=True):
             if st.session_state.current_request:
+                # Log user permission with modification
+                logger.info(f"User approved modified tool execution: {tool_name}, original: {query[:50]}..., modified: {modified_query[:50]}...")
+                log_user_interaction(
+                    action="tool_permission_modified",
+                    mode="tool_execution",
+                    tool_name=tool_name,
+                    original_query=query,
+                    modified_query=modified_query,
+                    decision="modified"
+                )
+                
                 st.session_state.current_request["permission_status"] = "modified"
                 st.session_state.current_request["execution_status"] = "not_started"
                 st.session_state.current_request["query"] = modified_query  # Use modified query
@@ -190,6 +228,16 @@ def render_tool_execution_failed(tool_name: str, error: str):
     with col2:
         if st.button("🔄 Retry", key="tool_retry", use_container_width=True):
             if st.session_state.current_request:
+                # Log retry from error
+                logger.info(f"User retrying tool execution after error: {tool_name} - {error}")
+                log_user_interaction(
+                    action="tool_execution_retry_from_error",
+                    mode="tool_execution",
+                    tool_name=tool_name,
+                    error_message=error,
+                    decision="retry"
+                )
+                
                 st.session_state.current_request["permission_status"] = "pending"
                 st.session_state.current_request["execution_status"] = "not_started"
                 st.session_state.current_request["error"] = None
@@ -197,6 +245,16 @@ def render_tool_execution_failed(tool_name: str, error: str):
     
     with col3:
         if st.button("❌ Cancel", key="tool_cancel_error", use_container_width=True):
+            # Log cancellation from error
+            logger.info(f"User cancelled tool execution after error: {tool_name} - {error}")
+            log_user_interaction(
+                action="tool_execution_cancelled_from_error",
+                mode="tool_execution",
+                tool_name=tool_name,
+                error_message=error,
+                decision="cancelled"
+            )
+            
             st.session_state.current_request = None
             st.rerun()
 
@@ -218,6 +276,17 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
     """
     # Create or update current request
     if not st.session_state.current_request:
+        # Log initial tool execution request
+        logger.info(f"Tool execution requested: {tool_name} for query: {original_user_query[:100]}...")
+        log_user_interaction(
+            action="tool_execution_requested",
+            mode="tool_execution",
+            tool_name=tool_name,
+            query=query,
+            description=description,
+            original_user_query=original_user_query
+        )
+        
         st.session_state.current_request = {
             "tool_name": tool_name,
             "query": query,
@@ -247,20 +316,76 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
         # Execute the tool
         try:
             final_query = request["query"]  # This will be the original or modified query
+            execution_start_time = time.time()
+            
+            # Log tool execution start
+            logger.info(f"Starting tool execution: {tool_name} with query: {final_query[:100]}...")
+            log_user_interaction(
+                action="tool_execution_started",
+                mode="tool_execution",
+                tool_name=tool_name,
+                query=final_query,
+                permission_type=request["permission_status"]
+            )
+            
             tool_result = agent.execute_tool(tool_name, final_query)
+            execution_duration = round((time.time() - execution_start_time) * 1000)
             
             if tool_result["success"]:
                 request["execution_status"] = "completed"
                 request["result"] = tool_result
                 request["error"] = None
+                
+                # Log successful tool execution
+                logger.info(f"Tool execution completed successfully: {tool_name} in {execution_duration}ms")
+                log_tool_execution(
+                    tool_name=tool_name,
+                    action="ui_execution",
+                    query=final_query,
+                    result=tool_result,
+                    duration_ms=execution_duration,
+                    success=True,
+                    user_initiated=True,
+                    permission_type=request["permission_status"]
+                )
             else:
                 request["execution_status"] = "failed"
                 request["error"] = tool_result.get("error", "Unknown error")
                 request["result"] = None
+                
+                # Log failed tool execution
+                logger.error(f"Tool execution failed: {tool_name} - {tool_result.get('error', 'Unknown error')}")
+                log_tool_execution(
+                    tool_name=tool_name,
+                    action="ui_execution",
+                    query=final_query,
+                    result=tool_result,
+                    duration_ms=execution_duration,
+                    success=False,
+                    user_initiated=True,
+                    permission_type=request["permission_status"],
+                    error_reason=tool_result.get("error", "Unknown error")
+                )
         except Exception as e:
+            execution_duration = round((time.time() - execution_start_time) * 1000) if 'execution_start_time' in locals() else 0
             request["execution_status"] = "failed"
             request["error"] = str(e)
             request["result"] = None
+            
+            # Log exception in tool execution
+            logger.exception(f"Tool execution exception: {tool_name} - {str(e)}")
+            log_tool_execution(
+                tool_name=tool_name,
+                action="ui_execution",
+                query=final_query,
+                result={"success": False, "error": str(e)},
+                duration_ms=execution_duration,
+                success=False,
+                user_initiated=True,
+                permission_type=request["permission_status"],
+                error_type=type(e).__name__,
+                error_message=str(e)
+            )
         
         # Force rerun to show results
         st.rerun()
@@ -335,6 +460,18 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
         with col1:
             if st.button("✅ Accept", key="tool_accept", use_container_width=True, type="primary"):
                 if st.session_state.current_request:
+                    # Log user acceptance of tool results
+                    results_data = result.get("output", "") if tool_name == "terminal" else (result.get("results") or result.get("output", ""))
+                    logger.info(f"User accepted tool results: {tool_name} - {len(str(results_data))} characters of results")
+                    log_user_interaction(
+                        action="tool_results_accepted",
+                        mode="tool_execution",
+                        tool_name=tool_name,
+                        decision="accepted",
+                        results_length=len(str(results_data)),
+                        execution_metadata=metadata
+                    )
+                    
                     # Accept: Add TOOL_RESULT step to timeline and trigger finalization
                     
                     # Create TOOL_RESULT step
@@ -375,6 +512,16 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
         with col2:
             if st.button("🔄 Retry", key="tool_retry_query", use_container_width=True):
                 if st.session_state.current_request:
+                    # Log user retry decision
+                    logger.info(f"User requested retry of tool execution: {tool_name}")
+                    log_user_interaction(
+                        action="tool_results_retry",
+                        mode="tool_execution",
+                        tool_name=tool_name,
+                        decision="retry",
+                        reason="user_requested_retry"
+                    )
+                    
                     # Retry: Reset to pending state
                     st.session_state.current_request["permission_status"] = "pending"
                     st.session_state.current_request["execution_status"] = "not_started"
@@ -385,6 +532,19 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
         with col3:
             if st.button("❌ Reject", key="tool_reject", use_container_width=True):
                 if st.session_state.current_request:
+                    # Log user rejection of tool results
+                    results_data = result.get("output", "") if tool_name == "terminal" else (result.get("results") or result.get("output", ""))
+                    logger.info(f"User rejected tool results: {tool_name} - declined {len(str(results_data))} characters of results")
+                    log_user_interaction(
+                        action="tool_results_rejected",
+                        mode="tool_execution",
+                        tool_name=tool_name,
+                        decision="rejected",
+                        results_length=len(str(results_data)),
+                        execution_metadata=metadata,
+                        reason="user_declined_results"
+                    )
+                    
                     # Reject: Add TOOL_RESULT step showing rejection and trigger finalization without tools
                     
                     # Create TOOL_RESULT step showing rejection

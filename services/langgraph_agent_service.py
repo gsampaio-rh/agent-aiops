@@ -27,7 +27,12 @@ from core.interfaces.llm_service import LLMServiceInterface
 from core.models.agent import AgentStep, AgentResponse, StepType, ToolInfo
 from core.exceptions import AgentError, AgentProcessingError, ErrorCodes
 from services.ollama_service import OllamaService
-from utils.logger import get_logger, log_performance, log_agent_step, request_context
+from utils.logger import (
+    get_logger, log_performance, log_agent_step, request_context,
+    log_llm_conversation, log_agent_workflow, log_tool_execution,
+    create_request_tracer, log_request_step, log_request_complete,
+    log_error_with_context
+)
 
 
 class AgentState(TypedDict):
@@ -75,6 +80,7 @@ class WebSearchTool(ToolInterface):
     
     def execute(self, query: str, **kwargs) -> Dict[str, Any]:
         """Execute web search."""
+        start_time = time.time()
         provider = kwargs.get("provider", "duckduckgo")
         max_results = kwargs.get("max_results", 5)
         
@@ -94,12 +100,13 @@ class WebSearchTool(ToolInterface):
             
             # Use new interface method
             result = search_service.search(search_query)
+            duration_ms = round((time.time() - start_time) * 1000)
             
             if result.is_successful() and result.results:
                 # Use the built-in formatting method
                 formatted_results = result.get_formatted_results(max_results)
                 
-                return {
+                result_data = {
                     "success": True,
                     "results": formatted_results,
                     "metadata": {
@@ -108,8 +115,22 @@ class WebSearchTool(ToolInterface):
                         "search_time_ms": result.search_time_ms
                     }
                 }
+                
+                # Log successful tool execution
+                log_tool_execution(
+                    tool_name="web_search",
+                    action="search",
+                    query=query,
+                    result=result_data,
+                    duration_ms=duration_ms,
+                    success=True,
+                    provider=result.provider_name,
+                    results_count=result.total_results
+                )
+                
+                return result_data
             else:
-                return {
+                result_data = {
                     "success": False,
                     "error": result.error or "No results found",
                     "metadata": {
@@ -119,12 +140,43 @@ class WebSearchTool(ToolInterface):
                     }
                 }
                 
+                # Log failed search (no results)
+                log_tool_execution(
+                    tool_name="web_search",
+                    action="search",
+                    query=query,
+                    result=result_data,
+                    duration_ms=duration_ms,
+                    success=False,
+                    provider=result.provider_name,
+                    error_reason="no_results"
+                )
+                
+                return result_data
+                
         except Exception as e:
-            return {
+            duration_ms = round((time.time() - start_time) * 1000)
+            
+            result_data = {
                 "success": False,
                 "error": f"Search failed: {str(e)}",
                 "metadata": {"exception": str(e)}
             }
+            
+            # Log exception in tool execution
+            log_tool_execution(
+                tool_name="web_search",
+                action="search",
+                query=query,
+                result=result_data,
+                duration_ms=duration_ms,
+                success=False,
+                provider=provider,
+                error_type=type(e).__name__,
+                error_message=str(e)
+            )
+            
+            return result_data
     
     def get_tool_info(self) -> ToolInfo:
         """Get tool information for the agent."""
@@ -186,13 +238,13 @@ class LangGraphAgent(AgentServiceInterface):
         self.workflow = workflow.compile(checkpointer=self.memory)
     
     def _reasoning_node(self, state: AgentState) -> AgentState:
-        """Node for agent reasoning and planning."""
+        """Node for agent reasoning and planning with conversation memory."""
         self.logger.debug("Executing reasoning node")
         
         # Create reasoning step
         step_data = {
             "step_type": "thought",
-            "content": "Analyzing the user's request and determining next steps...",
+            "content": "Analyzing the user's request and conversation history...",
             "timestamp": time.time(),
             "metadata": {"node": "reasoning"}
         }
@@ -200,23 +252,25 @@ class LangGraphAgent(AgentServiceInterface):
         state["agent_steps"].append(step_data)
         state["current_step"] = "reasoning"
         
-        # Generate reasoning using LLM
+        # Generate reasoning using LLM with full conversation context
         messages = state["messages"]
         
-        # Create system prompt that encourages tool usage
-        system_prompt = self._get_system_prompt()
+        # Create system prompt that includes memory instructions
+        system_prompt = self._get_system_prompt_with_memory()
         
-        # Get LLM response for reasoning
-        reasoning_messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": state["user_query"]}
-        ]
+        # Build complete conversation history for context
+        reasoning_messages = [{"role": "system", "content": system_prompt}]
         
-        # Add conversation history
-        for msg in messages[:-1]:  # Exclude current message
-            if hasattr(msg, 'content') and hasattr(msg, 'type'):
-                role = "user" if msg.type == "human" else "assistant"
-                reasoning_messages.append({"role": role, "content": msg.content})
+        # Add full conversation history (excluding the current query message)
+        conversation_history = self._build_conversation_history(messages)
+        reasoning_messages.extend(conversation_history)
+        
+        # Add current user query
+        reasoning_messages.append({"role": "user", "content": state["user_query"]})
+        
+        self.logger.debug("Built reasoning context", 
+                         total_messages=len(reasoning_messages),
+                         history_length=len(conversation_history))
         
         reasoning_response = ""
         for chunk in self.llm_service.chat_stream(
@@ -295,59 +349,26 @@ class LangGraphAgent(AgentServiceInterface):
         }
         state["agent_steps"].append(step_data)
         
-        # Actually execute the tool
-        if tool_name in self.tools:
-            try:
-                tool = self.tools[tool_name]
-                result = tool.execute(tool_query)
-                
-                # Create tool result step
-                if result.get("success", True):
-                    result_content = result.get("results", result.get("output", str(result)))
-                    result_step = {
-                        "step_type": "tool_result",
-                        "content": str(result_content),
-                        "timestamp": time.time(),
-                        "metadata": {
-                            "node": "tool_execution",
-                            "tool": tool_name,
-                            "success": True,
-                            **result.get("metadata", {})
-                        }
-                    }
-                else:
-                    result_step = {
-                        "step_type": "error",
-                        "content": f"Tool execution failed: {result.get('error', 'Unknown error')}",
-                        "timestamp": time.time(),
-                        "metadata": {
-                            "node": "tool_execution",
-                            "tool": tool_name,
-                            "success": False,
-                            "error": result.get("error")
-                        }
-                    }
-                
-                state["agent_steps"].append(result_step)
-                
-            except Exception as e:
-                self.logger.error("Tool execution failed", tool=tool_name, query=tool_query, error=str(e))
-                error_step = {
-                    "step_type": "error",
-                    "content": f"Tool execution error: {str(e)}",
-                    "timestamp": time.time(),
-                    "metadata": {"node": "tool_execution", "tool": tool_name, "error": str(e)}
-                }
-                state["agent_steps"].append(error_step)
-        else:
-            # Tool not found
-            error_step = {
-                "step_type": "error",
-                "content": f"Tool '{tool_name}' not available. Available tools: {list(self.tools.keys())}",
-                "timestamp": time.time(),
-                "metadata": {"node": "tool_execution", "tool": tool_name, "available_tools": list(self.tools.keys())}
+        # Log tool execution request for UI workflow (DO NOT execute automatically)
+        self.logger.info(f"Tool execution requested by agent: {tool_name} with query: {tool_query}")
+        
+        # Create a tool execution request step instead of executing directly
+        tool_request_step = {
+            "step_type": "tool_execution_request",
+            "content": f"Requesting user permission to execute {tool_name} with query: {tool_query}",
+            "timestamp": time.time(),
+            "metadata": {
+                "node": "tool_execution",
+                "tool": tool_name,
+                "query": tool_query,
+                "requires_user_permission": True,
+                "status": "pending_permission"
             }
-            state["agent_steps"].append(error_step)
+        }
+        state["agent_steps"].append(tool_request_step)
+        
+        # Note: Tool execution will be handled by the UI workflow after user permission
+        # The agent workflow will pause here and wait for the UI to handle the tool execution
         
         state["current_step"] = "tool_execution"
         state["iteration_count"] += 1
@@ -365,11 +386,20 @@ class LangGraphAgent(AgentServiceInterface):
                 tool_results.append(step.get("content", ""))
         
         if tool_results:
-            # Generate response based on tool results
+            # Generate response based on tool results with conversation context
             synthesis_messages = [
-                {"role": "system", "content": "You are analyzing tool results. Provide a direct, comprehensive answer based on the tool results. Do not repeat the thinking process or use step markers. Just give the final answer."},
-                {"role": "user", "content": f"Original query: {state['user_query']}\n\nTool results:\n{chr(10).join(tool_results)}\n\nBased on these results, provide a comprehensive answer to the user's question:"}
+                {"role": "system", "content": "You are analyzing tool results. Use conversation history for context and provide a comprehensive answer based on the tool results. Reference previous conversation when relevant."}
             ]
+            
+            # Add conversation history for context
+            conversation_history = self._build_conversation_history(state["messages"])
+            synthesis_messages.extend(conversation_history)
+            
+            # Add tool results and query
+            synthesis_messages.append({
+                "role": "user", 
+                "content": f"Original query: {state['user_query']}\n\nTool results:\n{chr(10).join(tool_results)}\n\nBased on these results and our conversation history, provide a comprehensive answer:"
+            })
             
             final_response = ""
             for chunk in self.llm_service.chat_stream(
@@ -383,11 +413,18 @@ class LangGraphAgent(AgentServiceInterface):
             
             content = final_response
         else:
-            # No tool results, generate direct response
+            # No tool results, generate direct response with conversation context
+            # Build complete message history including conversation context
             direct_messages = [
-                {"role": "system", "content": "You are a helpful AI assistant. Provide a direct answer to the user's question."},
-                {"role": "user", "content": state["user_query"]}
+                {"role": "system", "content": "You are a helpful AI assistant. Use conversation history to provide contextual responses. Reference previous information when relevant."}
             ]
+            
+            # Add conversation history for context
+            conversation_history = self._build_conversation_history(state["messages"])
+            direct_messages.extend(conversation_history)
+            
+            # Add current query
+            direct_messages.append({"role": "user", "content": state["user_query"]})
             
             direct_response = ""
             for chunk in self.llm_service.chat_stream(
@@ -475,6 +512,96 @@ EXAMPLES:
 - "What is 2+2?" → FINAL_ANSWER: 4
 
 Remember: Use tools for facts and current information. STOP after TOOL_USE."""
+    
+    def _get_system_prompt_with_memory(self) -> str:
+        """Get the system prompt with conversation memory instructions."""
+        tools_description = self.get_tools_description()
+        
+        return f"""You are a helpful AI assistant with access to tools and conversation memory. You can reference previous parts of our conversation to provide contextual responses.
+
+CONVERSATION MEMORY:
+- You have access to the full conversation history
+- Reference previous topics, user details, and context when relevant
+- Maintain continuity across the conversation
+- Remember user preferences, names, and information shared earlier
+
+You MUST use tools when the user asks for:
+- Current information, facts, news, or recent developments
+- Information that might change over time
+- Specific factual queries that benefit from web search
+- Technical questions that need up-to-date information
+
+Available tools:
+{tools_description}
+
+IMPORTANT: Follow this exact pattern for ALL responses:
+
+1. THOUGHT: Think about what the user is asking, reference any relevant conversation history, and determine if you need tools
+2. If you need a tool (for current info, facts, news, specific queries):
+   - TOOL_SELECTION: Choose which tool and explain why
+   - TOOL_USE: [tool_name]: [exact command or query]
+3. If you don't need tools (can answer from memory/knowledge or conversation context):
+   - FINAL_ANSWER: [your response using conversation context when relevant]
+
+CRITICAL RULES:
+- Always consider conversation history when formulating responses
+- Reference previous information when relevant (e.g., "As you mentioned earlier...")
+- For new factual queries: USE WEB_SEARCH
+- After TOOL_USE, STOP immediately - do not add anything else
+- Use EXACT format: "TOOL_USE: web_search: health benefits of meditation"
+- Never add explanations after TOOL_USE
+
+EXAMPLES:
+- User mentions their name, later asks "What's my name?" → FINAL_ANSWER: [reference the name from conversation]
+- "What are the latest news?" → TOOL_USE: web_search: latest news today
+- "Tell me more about that topic we discussed" → FINAL_ANSWER: [reference previous topic discussion]
+
+Remember: Use conversation memory for context, tools for current information."""
+    
+    def _build_conversation_history(self, messages: List[BaseMessage], max_messages: int = None) -> List[Dict[str, str]]:
+        """Build conversation history from LangGraph messages for context."""
+        history = []
+        
+        # Convert LangGraph messages to simple format, excluding the current query
+        for msg in messages[:-1]:  # Exclude current message to avoid duplication
+            if hasattr(msg, 'content') and hasattr(msg, 'type'):
+                if msg.type == "human":
+                    history.append({"role": "user", "content": msg.content})
+                elif msg.type == "ai":
+                    history.append({"role": "assistant", "content": msg.content})
+        
+        # Apply sliding window to prevent token limit issues
+        if max_messages is None:
+            # Use default from configuration
+            from config.constants import AGENT_CONFIG
+            max_messages = AGENT_CONFIG.get("max_conversation_history", 20)
+        
+        if len(history) > max_messages:
+            # Keep the most recent messages
+            history = history[-max_messages:]
+            
+            # Log that we're truncating history
+            self.logger.debug("Truncated conversation history", 
+                            original_length=len(messages) - 1,
+                            truncated_length=len(history),
+                            max_messages=max_messages)
+        
+        return history
+    
+    def _format_conversation_summary(self, history: List[Dict[str, str]]) -> str:
+        """Format conversation history into a readable summary for context."""
+        if not history:
+            return "No previous conversation history."
+        
+        summary_parts = []
+        summary_parts.append(f"Conversation history ({len(history)} messages):")
+        
+        for i, msg in enumerate(history[-10:]):  # Show last 10 for summary
+            role = msg["role"].title()
+            content = msg["content"][:100] + "..." if len(msg["content"]) > 100 else msg["content"]
+            summary_parts.append(f"{i+1}. {role}: {content}")
+        
+        return "\n".join(summary_parts)
     
     def register_tool(self, tool: ToolInterface) -> None:
         """Register a new tool with the agent."""
@@ -572,12 +699,22 @@ Remember: Use tools for facts and current information. STOP after TOOL_USE."""
     def process_query_stream(self, user_query: str, conversation_history: List[Dict[str, str]] = None, **kwargs) -> Iterator[AgentStep]:
         """Process user query and yield steps as they happen."""
         start_time = time.time()
+        correlation_id = create_request_tracer(user_query, self.model)
         
-        with request_context(user_query=user_query, model=self.model) as correlation_id:
+        with request_context(user_query=user_query, model=self.model) as _:
             self.logger.info("Starting LangGraph agent query processing", 
                            query=user_query[:100] + "..." if len(user_query) > 100 else user_query,
                            model=self.model,
                            correlation_id=correlation_id)
+            
+            # Log conversation context if provided
+            if conversation_history:
+                log_llm_conversation(
+                    conversation_id=correlation_id,
+                    messages=conversation_history + [{"role": "user", "content": user_query}],
+                    model=self.model,
+                    action="agent_processing"
+                )
             
             try:
                 # Prepare initial state
@@ -609,6 +746,21 @@ Remember: Use tools for facts and current information. STOP after TOOL_USE."""
                 for event in self.workflow.stream(initial_state, config):
                     self.logger.debug("LangGraph event", event=event)
                     
+                    # Log workflow steps for detailed tracking
+                    for node_name, state_data in event.items():
+                        log_agent_workflow(
+                            workflow_id=correlation_id,
+                            step_name=node_name,
+                            step_type=node_name,
+                            step_data=state_data if isinstance(state_data, dict) else {"state": str(state_data)}
+                        )
+                        
+                        log_request_step(
+                            correlation_id=correlation_id,
+                            step=f"workflow_{node_name}",
+                            data={"node": node_name, "state_keys": list(state_data.keys()) if isinstance(state_data, dict) else []}
+                        )
+                    
                     # Extract agent steps from the current state
                     current_state = event.get("reasoning") or event.get("tool_selection") or event.get("tool_execution") or event.get("final_answer")
                     
@@ -627,17 +779,49 @@ Remember: Use tools for facts and current information. STOP after TOOL_USE."""
                                 metadata=step_data.get("metadata", {})
                             )
                             
-                            log_agent_step(step.step_type.value, step.content)
+                            # Enhanced logging for agent steps
+                            log_agent_step(step.step_type.value, step.content, 
+                                         correlation_id=correlation_id,
+                                         step_index=i,
+                                         **step.metadata)
                             yield step
                             yielded_steps += 1
                 
+                # Log completion
+                total_duration = round((time.time() - start_time) * 1000)
+                log_request_complete(
+                    correlation_id=correlation_id,
+                    total_duration_ms=total_duration,
+                    success=True,
+                    steps_generated=yielded_steps
+                )
+                
             except Exception as e:
+                # Enhanced error logging with full context
+                error_context = {
+                    "user_query": user_query,
+                    "model": self.model,
+                    "conversation_history_length": len(conversation_history) if conversation_history else 0,
+                    "available_tools": list(self.tools.keys()),
+                    "correlation_id": correlation_id
+                }
+                
+                log_error_with_context(e, error_context, "agent_processing")
+                
+                total_duration = round((time.time() - start_time) * 1000)
+                log_request_complete(
+                    correlation_id=correlation_id,
+                    total_duration_ms=total_duration,
+                    success=False,
+                    error=str(e)
+                )
+                
                 self.logger.exception("LangGraph agent processing failed", error=str(e))
                 yield AgentStep(
                     step_type=StepType.ERROR,
                     content=f"Agent processing failed: {str(e)}",
                     timestamp=time.time(),
-                    metadata={"error": str(e)}
+                    metadata={"error": str(e), "correlation_id": correlation_id}
                 )
     
     def process_query(self, user_query: str, conversation_history: List[Dict[str, str]] = None, **kwargs) -> AgentResponse:
