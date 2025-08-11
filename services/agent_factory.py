@@ -1,8 +1,8 @@
 """
 Agent Factory
 
-Factory for creating different types of agents based on configuration.
-Supports both ReactAgent and LangGraphAgent implementations.
+Factory for creating LangGraphAgent instances with proper tool registration.
+Simplified after ReactAgent deprecation.
 """
 
 from typing import Optional, Dict, Any
@@ -17,68 +17,31 @@ class AgentFactory:
     
     @staticmethod
     def create_agent(
-        agent_type: Optional[str] = None,
         model: str = "llama3.2:3b",
         llm_service: Optional[LLMServiceInterface] = None,
         **kwargs
     ) -> AgentServiceInterface:
         """
-        Create an agent instance based on configuration.
+        Create a LangGraphAgent instance.
         
         Args:
-            agent_type: Type of agent to create ("react" or "langgraph")
             model: Model name to use
             llm_service: Optional LLM service instance
             **kwargs: Additional arguments passed to agent constructor
             
         Returns:
-            AgentServiceInterface: Configured agent instance
+            AgentServiceInterface: Configured LangGraphAgent instance
             
         Raises:
-            ValueError: If agent_type is not supported
-            ImportError: If required dependencies are missing
+            ImportError: If LangGraph dependencies are missing
         """
         logger = get_logger(__name__)
         
-        # Determine agent type from config if not specified
-        if agent_type is None:
-            # Default to LangGraph if available, fallback to react
-            if AgentFactory.is_langgraph_available():
-                agent_type = AGENT_CONFIG.get("agent_type", "langgraph")
-            else:
-                agent_type = "react"
+        logger.info("Creating LangGraphAgent", model=model)
         
-        logger.info("Creating agent", agent_type=agent_type, model=model)
-        
-        if agent_type == "react":
-            return AgentFactory._create_react_agent(model, llm_service, **kwargs)
-        elif agent_type == "langgraph":
-            return AgentFactory._create_langgraph_agent(model, llm_service, **kwargs)
-        else:
-            raise ValueError(f"Unsupported agent type: {agent_type}. Use 'react' or 'langgraph'")
+        return AgentFactory._create_langgraph_agent(model, llm_service, **kwargs)
     
-    @staticmethod
-    def _create_react_agent(
-        model: str,
-        llm_service: Optional[LLMServiceInterface] = None,
-        **kwargs
-    ) -> AgentServiceInterface:
-        """Create a ReactAgent instance."""
-        from services.agent_service import ReactAgent
-        from services.search_service import WebSearchService
-        
-        search_service = kwargs.get("search_service") or WebSearchService()
-        
-        agent = ReactAgent(
-            model=model,
-            llm_service=llm_service,
-            search_service=search_service
-        )
-        
-        # Register tools based on configuration
-        AgentFactory._register_default_tools(agent)
-        
-        return agent
+
     
     @staticmethod
     def _create_langgraph_agent(
@@ -114,7 +77,7 @@ class AgentFactory:
         if AGENT_CONFIG.get("enable_web_search", True):
             try:
                 # Import here to avoid circular imports
-                from services.agent_service import WebSearchTool
+                from services.langgraph_agent_service import WebSearchTool
                 web_search_tool = WebSearchTool()
                 agent.register_tool(web_search_tool)
                 logger.info("Registered web search tool")
@@ -139,18 +102,9 @@ class AgentFactory:
     @staticmethod
     def get_available_agent_types() -> Dict[str, str]:
         """Get available agent types and their descriptions."""
-        types = {
-            "react": "Original ReAct-pattern agent with step-by-step reasoning",
+        return {
+            "langgraph": "LangGraph-based agent with workflow management"
         }
-        
-        # Check if LangGraph is available
-        try:
-            import langgraph
-            types["langgraph"] = "LangGraph-based agent with workflow management"
-        except ImportError:
-            pass
-        
-        return types
     
     @staticmethod
     def is_langgraph_available() -> bool:
@@ -166,19 +120,17 @@ class AgentFactory:
 
 # Convenience function for creating agents
 def create_agent(
-    agent_type: Optional[str] = None,
     model: str = "llama3.2:3b",
     **kwargs
 ) -> AgentServiceInterface:
     """
-    Convenience function to create an agent.
+    Convenience function to create a LangGraphAgent.
     
     Args:
-        agent_type: Type of agent ("react" or "langgraph")
         model: Model name
         **kwargs: Additional arguments
         
     Returns:
-        AgentServiceInterface: Configured agent instance
+        AgentServiceInterface: Configured LangGraphAgent instance
     """
-    return AgentFactory.create_agent(agent_type=agent_type, model=model, **kwargs)
+    return AgentFactory.create_agent(model=model, **kwargs)

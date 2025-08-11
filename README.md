@@ -1,16 +1,15 @@
 # 🤖 Agent-AIOps
 
-A sophisticated AI agent framework featuring dual implementations (ReactAgent + LangGraphAgent) with a premium Streamlit interface. Built for enterprise-grade AI operations with local Ollama models.
+A sophisticated AI agent framework featuring LangGraph-based workflow management with a premium Streamlit interface. Built for enterprise-grade AI operations with local Ollama models.
 
 ## ✨ Key Features
 
-### 🧠 **Dual Agent Architecture**
-- **LangGraphAgent** (Default): Advanced workflow management with state machines
-- **ReactAgent**: Classic ReAct pattern with step-by-step reasoning
-- **Runtime Switching**: Seamlessly switch between implementations via UI
+### 🧠 **Advanced Agent Architecture**
+- **LangGraphAgent**: Workflow management with state machines and checkpointing
+- **Tool Integration**: Web search, terminal commands with safety validation
+- **Real-time Reasoning**: Step-by-step thought process visualization
 
 ### 🔧 **Enterprise Features**
-- **Tool Integration**: Web search, terminal commands (with safety)
 - **Performance Monitoring**: Comprehensive metrics and logging
 - **Model Flexibility**: Easy switching between Ollama models
 - **Configuration Management**: Environment-based settings with validation
@@ -54,7 +53,6 @@ agent-aiops/
 │   └── validators/               # Input validation
 ├── services/                      # Business logic
 │   ├── agent_factory.py         # Agent creation & management
-│   ├── agent_service.py         # ReactAgent implementation
 │   ├── langgraph_agent_service.py # LangGraphAgent implementation
 │   ├── ollama_service.py        # Ollama LLM integration
 │   ├── search_service.py        # Multi-provider web search
@@ -73,21 +71,14 @@ agent-aiops/
     └── log_analyzer.py         # Log analysis tools
 ```
 
-## 🤖 Agent Implementations
+## 🤖 Agent Implementation
 
-### LangGraphAgent (Default)
-- **Workflow Management**: Graph-based state machines
+### LangGraphAgent
+- **Workflow Management**: Graph-based state machines with conditional routing
 - **Checkpointing**: Memory persistence across conversations
 - **Conditional Logic**: Smart routing between reasoning and tool usage
 - **Performance**: ~1.6s average response time
-
-### ReactAgent (Fallback)
-- **ReAct Pattern**: Classic Reasoning + Acting approach
-- **Step Visualization**: Clear thought process display
-- **Tool Orchestration**: Sequential tool execution
-- **Performance**: ~2.4s average response time
-
-Switch between agents in the sidebar under "🤖 Agent Type".
+- **Tool Integration**: Seamless web search and terminal execution
 
 ## ⚙️ Configuration
 
@@ -112,7 +103,6 @@ ENABLE_JSON_LOGGING=true
 ### Agent Configuration (`config/constants.py`)
 ```python
 AGENT_CONFIG = {
-    "agent_type": "langgraph",        # Default agent
     "max_iterations": 10,
     "enable_web_search": True,
     "enable_terminal": True,
@@ -164,13 +154,13 @@ pip install -r requirements.txt
 streamlit run app.py --server.runOnSave true
 
 # Run tests
-python test_langgraph_integration.py
+python test_agent.py
 ```
 
 ### Adding New Features
 1. **New Tools**: Implement `ToolInterface` in `services/`
 2. **UI Components**: Add to `ui/components.py`
-3. **Agent Features**: Extend agent implementations
+3. **Agent Features**: Extend LangGraphAgent workflows
 4. **Styling**: Modify `ui/styles.py`
 
 ## 🐛 Troubleshooting
@@ -179,7 +169,7 @@ python test_langgraph_integration.py
 1. **"Ollama not running"**: Start with `ollama serve`
 2. **"No models available"**: Install with `ollama pull llama3.2:3b`
 3. **Slow responses**: Try smaller models or reduce max_tokens
-4. **Agent switching**: Use sidebar "Agent Type" selection
+4. **LangGraph errors**: Ensure all dependencies are installed
 
 ### Performance Optimization
 - Use smaller models for faster responses
@@ -197,7 +187,7 @@ Contributions welcome! Please:
 - Follow the modular architecture patterns
 - Maintain interface contracts
 - Add appropriate tests and documentation
-- Test both agent implementations
+- Test the LangGraph agent implementation
 
 ---
 

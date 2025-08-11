@@ -11,8 +11,6 @@ AGENT_CONFIG: Dict[str, Any] = {
     "enable_terminal": True,
     "show_thinking_process": True,
     "mcp_servers": ["desktop_commander"],
-    "use_langgraph": True,  # Toggle between ReactAgent and LangGraphAgent
-    "agent_type": "langgraph",  # "react" or "langgraph"
 }
 
 # MCP (Model Context Protocol) configuration

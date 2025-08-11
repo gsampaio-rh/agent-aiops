@@ -71,30 +71,6 @@ def render_sidebar() -> Dict[str, Any]:
                 st.session_state.current_model = current_model
                 st.session_state.agent = create_agent(model=current_model)
             
-            # Agent type selection (if LangGraph is available)
-            if AgentFactory.is_langgraph_available():
-                st.subheader("🤖 Agent Type")
-                available_types = AgentFactory.get_available_agent_types()
-                agent_type_labels = {
-                    "react": "ReAct Agent (Original)",
-                    "langgraph": "LangGraph Agent (Advanced)"
-                }
-                
-                current_agent_type = st.session_state.get("agent_type", "react")
-                agent_type = st.radio(
-                    "Agent Implementation",
-                    options=list(available_types.keys()),
-                    format_func=lambda x: agent_type_labels.get(x, x),
-                    index=list(available_types.keys()).index(current_agent_type) if current_agent_type in available_types else 0,
-                    help="Choose between different agent implementations"
-                )
-                
-                # Update agent if type changed
-                if agent_type != st.session_state.get("agent_type"):
-                    st.session_state.agent_type = agent_type
-                    st.session_state.agent = create_agent(agent_type=agent_type, model=current_model)
-                    st.rerun()
-            
             # Agent mode toggle
             st.subheader("🧠 Mode")
             agent_mode = st.radio(
