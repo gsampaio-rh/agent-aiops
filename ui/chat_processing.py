@@ -45,7 +45,8 @@ def finalize_assistant_response_with_timeline(prompt: str, config: Dict[str, Any
 Command Output:
 {tool_output}"""
             else:
-                search_results = result.get('results', 'No results')
+                # Check for results in both possible keys (ReactAgent uses "results", LangGraph uses "output")
+                search_results = result.get('results') or result.get('output', 'No results')
                 content_type = "search results"
                 system_content = f"""You are a helpful AI assistant. You have access to search results from {tool_context['provider']} for the query "{tool_context['query']}". Use this information to provide a comprehensive answer to the user's question. Do not mention that you performed a search or reference the search process - just provide a natural, helpful answer based on the information.
 
@@ -211,22 +212,29 @@ def process_agent_query(prompt: str, config: Dict[str, Any], chat_container):
             if step.step_type == StepType.TOOL_USE:
                 agent_steps.append(step)
                 
-                # Parse tool usage
-                content = step.content.strip()
-                if ':' in content:
-                    tool_part, query_part = content.split(':', 1)
-                    tool_name = tool_part.strip()
-                    tool_query = query_part.strip()
-                    
-                    # Clean up the query
-                    tool_query = tool_query.replace('"', '').replace(' OR ', ' ')
-                    if tool_query.startswith('(') and tool_query.endswith(')'):
-                        tool_query = tool_query[1:-1]
-                    
-                    # Get tool description
-                    tool_description = "Unknown tool"
-                    if tool_name in st.session_state.agent.tools:
-                        tool_description = st.session_state.agent.tools[tool_name].description
+                # Extract tool info from metadata (preferred) or parse from content
+                step_metadata = getattr(step, 'metadata', {})
+                tool_name = step_metadata.get('tool', '')
+                tool_query = step_metadata.get('query', '')
+                
+                # Fallback to content parsing if metadata not available
+                if not tool_name or not tool_query:
+                    content = step.content.strip()
+                    if ':' in content:
+                        tool_part, query_part = content.split(':', 1)
+                        tool_name = tool_part.strip()
+                        tool_query = query_part.strip()
+                        
+                        # Clean up the query
+                        tool_query = tool_query.replace('"', '').replace(' OR ', ' ')
+                        if tool_query.startswith('(') and tool_query.endswith(')'):
+                            tool_query = tool_query[1:-1]
+                
+                # Get tool description
+                tool_description = "Unknown tool"
+                if hasattr(st.session_state.agent, 'tools') and tool_name in st.session_state.agent.tools:
+                    tool_info = st.session_state.agent.tools[tool_name].get_tool_info()
+                    tool_description = tool_info.description
                     
                     # Clear thinking display and show current steps
                     with thinking_placeholder.container():

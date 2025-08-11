@@ -44,12 +44,14 @@ class AgentState(TypedDict):
 class LangChainToolAdapter(BaseTool):
     """Adapter to convert ToolInterface to LangChain Tool format."""
     
+    wrapped_tool: ToolInterface
+    
     def __init__(self, tool: ToolInterface):
-        self.wrapped_tool = tool
         tool_info = tool.get_tool_info()
         super().__init__(
             name=tool_info.name,
-            description=tool_info.description
+            description=tool_info.description,
+            wrapped_tool=tool
         )
     
     def _run(self, query: str, **kwargs) -> str:
@@ -105,14 +107,7 @@ class LangGraphAgent(AgentServiceInterface):
         )
         
         workflow.add_edge("tool_selection", "tool_execution")
-        workflow.add_conditional_edges(
-            "tool_execution",
-            self._should_continue,
-            {
-                "continue": "reasoning",
-                "finish": "final_answer"
-            }
-        )
+        workflow.add_edge("tool_execution", "final_answer")
         
         workflow.add_edge("final_answer", END)
         
@@ -140,7 +135,7 @@ class LangGraphAgent(AgentServiceInterface):
         # Generate reasoning using LLM
         messages = state["messages"]
         
-        # Create system prompt
+        # Create system prompt that encourages tool usage
         system_prompt = self._get_system_prompt()
         
         # Get LLM response for reasoning
@@ -191,18 +186,103 @@ class LangGraphAgent(AgentServiceInterface):
         """Node for executing selected tools."""
         self.logger.debug("Executing tool execution node")
         
+        # Find the tool use command from previous steps
+        tool_command = None
+        tool_name = None
+        tool_query = None
+        
+        # Look through recent steps for TOOL_USE command
+        for step in reversed(state["agent_steps"]):
+            content = step.get("content", "")
+            if "TOOL_USE:" in content:
+                # Parse tool command: "TOOL_USE: tool_name: query"
+                try:
+                    tool_part = content.split("TOOL_USE:", 1)[1].strip()
+                    if ":" in tool_part:
+                        tool_name, tool_query = tool_part.split(":", 1)
+                        tool_name = tool_name.strip()
+                        tool_query = tool_query.strip()
+                        tool_command = tool_part
+                        break
+                except Exception as e:
+                    self.logger.error("Failed to parse tool command", error=str(e), content=content)
+        
+        if not tool_command or not tool_name:
+            # No valid tool command found
+            step_data = {
+                "step_type": "error",
+                "content": "No valid tool command found",
+                "timestamp": time.time(),
+                "metadata": {"node": "tool_execution", "error": "no_tool_command"}
+            }
+            state["agent_steps"].append(step_data)
+            return state
+        
+        # Create tool use step
         step_data = {
             "step_type": "tool_use",
-            "content": "Executing selected tool...",
+            "content": f"Executing {tool_name} with query: {tool_query}",
             "timestamp": time.time(),
-            "metadata": {"node": "tool_execution"}
+            "metadata": {"node": "tool_execution", "tool": tool_name, "query": tool_query}
         }
-        
         state["agent_steps"].append(step_data)
-        state["current_step"] = "tool_execution"
         
-        # Tool execution logic would go here
-        # For now, simulate tool execution
+        # Actually execute the tool
+        if tool_name in self.tools:
+            try:
+                tool = self.tools[tool_name]
+                result = tool.execute(tool_query)
+                
+                # Create tool result step
+                if result.get("success", True):
+                    result_content = result.get("results", result.get("output", str(result)))
+                    result_step = {
+                        "step_type": "tool_result",
+                        "content": str(result_content),
+                        "timestamp": time.time(),
+                        "metadata": {
+                            "node": "tool_execution",
+                            "tool": tool_name,
+                            "success": True,
+                            **result.get("metadata", {})
+                        }
+                    }
+                else:
+                    result_step = {
+                        "step_type": "error",
+                        "content": f"Tool execution failed: {result.get('error', 'Unknown error')}",
+                        "timestamp": time.time(),
+                        "metadata": {
+                            "node": "tool_execution",
+                            "tool": tool_name,
+                            "success": False,
+                            "error": result.get("error")
+                        }
+                    }
+                
+                state["agent_steps"].append(result_step)
+                
+            except Exception as e:
+                self.logger.error("Tool execution failed", tool=tool_name, query=tool_query, error=str(e))
+                error_step = {
+                    "step_type": "error",
+                    "content": f"Tool execution error: {str(e)}",
+                    "timestamp": time.time(),
+                    "metadata": {"node": "tool_execution", "tool": tool_name, "error": str(e)}
+                }
+                state["agent_steps"].append(error_step)
+        else:
+            # Tool not found
+            error_step = {
+                "step_type": "error",
+                "content": f"Tool '{tool_name}' not available. Available tools: {list(self.tools.keys())}",
+                "timestamp": time.time(),
+                "metadata": {"node": "tool_execution", "tool": tool_name, "available_tools": list(self.tools.keys())}
+            }
+            state["agent_steps"].append(error_step)
+        
+        state["current_step"] = "tool_execution"
+        state["iteration_count"] += 1
         
         return state
     
@@ -210,11 +290,58 @@ class LangGraphAgent(AgentServiceInterface):
         """Node for generating final answer."""
         self.logger.debug("Executing final answer node")
         
+        # Check if we have tool results to synthesize
+        tool_results = []
+        for step in state["agent_steps"]:
+            if step.get("step_type") == "tool_result":
+                tool_results.append(step.get("content", ""))
+        
+        if tool_results:
+            # Generate response based on tool results
+            synthesis_messages = [
+                {"role": "system", "content": "You are analyzing tool results. Provide a direct, comprehensive answer based on the tool results. Do not repeat the thinking process or use step markers. Just give the final answer."},
+                {"role": "user", "content": f"Original query: {state['user_query']}\n\nTool results:\n{chr(10).join(tool_results)}\n\nBased on these results, provide a comprehensive answer to the user's question:"}
+            ]
+            
+            final_response = ""
+            for chunk in self.llm_service.chat_stream(
+                model=self.model,
+                messages=synthesis_messages,
+                temperature=0.7,
+                max_tokens=1000
+            ):
+                if chunk.get("content"):
+                    final_response += chunk["content"]
+            
+            content = final_response
+        else:
+            # No tool results, generate direct response
+            direct_messages = [
+                {"role": "system", "content": "You are a helpful AI assistant. Provide a direct answer to the user's question."},
+                {"role": "user", "content": state["user_query"]}
+            ]
+            
+            direct_response = ""
+            for chunk in self.llm_service.chat_stream(
+                model=self.model,
+                messages=direct_messages,
+                temperature=0.7,
+                max_tokens=1000
+            ):
+                if chunk.get("content"):
+                    direct_response += chunk["content"]
+            
+            content = direct_response
+        
         step_data = {
             "step_type": "final_answer",
-            "content": "Generating final response based on analysis and tool results...",
+            "content": content,
             "timestamp": time.time(),
-            "metadata": {"node": "final_answer"}
+            "metadata": {
+                "node": "final_answer",
+                "tool_results_used": len(tool_results) > 0,
+                "tool_results_count": len(tool_results)
+            }
         }
         
         state["agent_steps"].append(step_data)
@@ -224,35 +351,36 @@ class LangGraphAgent(AgentServiceInterface):
     
     def _should_use_tool(self, state: AgentState) -> str:
         """Determine if a tool should be used."""
-        # Simple logic for now - check if reasoning mentions tool usage
+        # Check if we've hit max iterations
+        if state["iteration_count"] >= state["max_iterations"]:
+            return "final_answer"
+        
+        # Get the last step content
         last_step = state["agent_steps"][-1] if state["agent_steps"] else {}
         content = last_step.get("content", "")
         
-        # Look for tool usage patterns
-        if any(tool_name in content.lower() for tool_name in state["available_tools"]):
+        # Look for explicit tool usage command
+        if "TOOL_USE:" in content:
             return "use_tool"
-        elif "TOOL_USE:" in content:
+        elif "FINAL_ANSWER:" in content:
+            return "final_answer"
+        elif any(f"TOOL_USE: {tool_name}" in content for tool_name in state["available_tools"]):
             return "use_tool"
         else:
+            # Default to final answer if no clear tool usage detected
             return "final_answer"
     
-    def _should_continue(self, state: AgentState) -> str:
-        """Determine if processing should continue or finish."""
-        if state["iteration_count"] >= state["max_iterations"]:
-            return "finish"
-        
-        # Check if we have a complete answer
-        last_step = state["agent_steps"][-1] if state["agent_steps"] else {}
-        if last_step.get("step_type") == "tool_result":
-            return "finish"
-        
-        return "continue"
+
     
     def _get_system_prompt(self) -> str:
         """Get the system prompt for the agent."""
         tools_description = self.get_tools_description()
         
-        return f"""You are a helpful AI assistant with access to tools. You can reason step by step and use tools when needed.
+        return f"""You are a helpful AI assistant with access to tools. You MUST use tools when the user asks for:
+- Current information, facts, news, or recent developments
+- Information that might change over time
+- Specific factual queries that benefit from web search
+- Technical questions that need up-to-date information
 
 Available tools:
 {tools_description}
@@ -260,19 +388,25 @@ Available tools:
 IMPORTANT: Follow this exact pattern for ALL responses:
 
 1. THOUGHT: Think about what the user is asking and whether you need to use a tool
-2. If you need a tool:
+2. If you need a tool (for current info, facts, news, specific queries):
    - TOOL_SELECTION: Choose which tool and explain why
    - TOOL_USE: [tool_name]: [exact command or query]
-3. If you don't need tools:
+3. If you don't need tools (for general knowledge, definitions, explanations):
    - FINAL_ANSWER: [your direct response]
 
 CRITICAL RULES:
+- For questions about health, benefits, current events, specific facts: USE WEB_SEARCH
 - After TOOL_USE, STOP immediately - do not add anything else
 - The system will execute the tool and provide results automatically
-- Use EXACT format: "TOOL_USE: terminal: ls -la" or "TOOL_USE: web_search: Python tutorial"
+- Use EXACT format: "TOOL_USE: web_search: health benefits of meditation"
 - Never add explanations after TOOL_USE
 
-Remember: STOP after TOOL_USE. The system handles tool execution and results."""
+EXAMPLES:
+- "What are the health benefits of meditation?" → TOOL_USE: web_search: health benefits of meditation
+- "What's the weather today?" → TOOL_USE: web_search: weather today
+- "What is 2+2?" → FINAL_ANSWER: 4
+
+Remember: Use tools for facts and current information. STOP after TOOL_USE."""
     
     def register_tool(self, tool: ToolInterface) -> None:
         """Register a new tool with the agent."""
@@ -303,6 +437,47 @@ Remember: STOP after TOOL_USE. The system handles tool execution and results."""
             tool_info = tool.get_tool_info()
             descriptions.append(f"- {tool_info.name}: {tool_info.description}")
         return "\n".join(descriptions)
+    
+    def execute_tool(self, tool_name: str, query: str, **kwargs) -> Dict[str, Any]:
+        """Execute a specific tool directly. Used by UI components for tool confirmation."""
+        self.logger.debug("Executing tool directly", tool=tool_name, query=query)
+        
+        if tool_name not in self.tools:
+            return {
+                "success": False,
+                "error": f"Tool '{tool_name}' not found",
+                "output": "",
+                "metadata": {"available_tools": list(self.tools.keys())}
+            }
+        
+        try:
+            tool = self.tools[tool_name]
+            result = tool.execute(query, **kwargs)
+            
+            # Ensure result has expected format
+            if isinstance(result, dict):
+                return {
+                    "success": result.get("success", True),
+                    "output": result.get("results", result.get("output", str(result))),
+                    "error": result.get("error", ""),
+                    "metadata": result.get("metadata", {})
+                }
+            else:
+                return {
+                    "success": True,
+                    "output": str(result),
+                    "error": "",
+                    "metadata": {}
+                }
+                
+        except Exception as e:
+            self.logger.error("Tool execution failed", tool=tool_name, query=query, error=str(e))
+            return {
+                "success": False,
+                "error": str(e),
+                "output": "",
+                "metadata": {"exception_type": type(e).__name__}
+            }
     
     def update_model(self, model: str) -> None:
         """Update the model used by the agent."""
@@ -361,6 +536,7 @@ Remember: STOP after TOOL_USE. The system handles tool execution and results."""
                 
                 # Run the workflow
                 config = {"configurable": {"thread_id": correlation_id}}
+                yielded_steps = 0  # Track how many steps we've already yielded
                 
                 for event in self.workflow.stream(initial_state, config):
                     self.logger.debug("LangGraph event", event=event)
@@ -369,7 +545,12 @@ Remember: STOP after TOOL_USE. The system handles tool execution and results."""
                     current_state = event.get("reasoning") or event.get("tool_selection") or event.get("tool_execution") or event.get("final_answer")
                     
                     if current_state and "agent_steps" in current_state:
-                        for step_data in current_state["agent_steps"]:
+                        # Only yield new steps that haven't been yielded yet
+                        total_steps = len(current_state["agent_steps"])
+                        
+                        for i in range(yielded_steps, total_steps):
+                            step_data = current_state["agent_steps"][i]
+                            
                             # Convert to AgentStep
                             step = AgentStep(
                                 step_type=StepType(step_data["step_type"]),
@@ -380,6 +561,7 @@ Remember: STOP after TOOL_USE. The system handles tool execution and results."""
                             
                             log_agent_step(step.step_type.value, step.content)
                             yield step
+                            yielded_steps += 1
                 
             except Exception as e:
                 self.logger.exception("LangGraph agent processing failed", error=str(e))

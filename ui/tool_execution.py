@@ -313,9 +313,11 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
             
             # Show expandable results preview
             with st.expander("📋 Preview Results", expanded=False):
+                # Check for results in both possible keys (ReactAgent uses "results", LangGraph uses "output")
+                results_content = result.get("results") or result.get("output", "No results")
                 st.markdown(f"""
                 <div class="tool-results-container">
-                    <pre class="tool-results">{result.get("results", "No results")}</pre>
+                    <pre class="tool-results">{results_content}</pre>
                 </div>
                 """, unsafe_allow_html=True)
         
@@ -345,8 +347,8 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
                             "provider": metadata.get("provider", "terminal" if tool_name == "terminal" else "Unknown"),
                             "search_time_ms": metadata.get("search_time_ms", 0),
                             "total_results": metadata.get("total_results", 0),
-                            "results_preview": (result.get("output", "")[:200] + "..." if len(result.get("output", "")) > 200 else result.get("output", "")) if tool_name == "terminal" else (result.get("results", "")[:200] + "..." if len(result.get("results", "")) > 200 else result.get("results", "")),
-                            "full_results": result.get("output", "") if tool_name == "terminal" else result.get("results", ""),
+                            "results_preview": (result.get("output", "")[:200] + "..." if len(result.get("output", "")) > 200 else result.get("output", "")) if tool_name == "terminal" else ((result.get("results") or result.get("output", ""))[:200] + "..." if len(result.get("results") or result.get("output", "")) > 200 else (result.get("results") or result.get("output", ""))),
+                            "full_results": result.get("output", "") if tool_name == "terminal" else (result.get("results") or result.get("output", "")),
                             "user_decision": "accepted"
                         }
                     )

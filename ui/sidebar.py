@@ -93,7 +93,7 @@ def render_sidebar() -> Dict[str, Any]:
                 if agent_type != st.session_state.get("agent_type"):
                     st.session_state.agent_type = agent_type
                     st.session_state.agent = create_agent(agent_type=agent_type, model=current_model)
-                    st.experimental_rerun()
+                    st.rerun()
             
             # Agent mode toggle
             st.subheader("🧠 Mode")
