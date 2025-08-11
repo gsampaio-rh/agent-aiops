@@ -13,7 +13,7 @@ import streamlit as st
 from typing import Dict, Any
 
 from config.settings import APP_TITLE, APP_ICON, DEFAULT_MODEL
-from services.agent_service import ReactAgent
+from services.agent_factory import create_agent, AgentFactory
 from utils.chat_utils import initialize_session_state
 
 
@@ -71,7 +71,7 @@ def initialize_enhanced_session():
     if "agent" not in st.session_state:
         try:
             model = st.session_state.get("current_model", DEFAULT_MODEL)
-            st.session_state.agent = ReactAgent(model)
+            st.session_state.agent = create_agent(model=model)
         except Exception as e:
             st.error(f"Failed to initialize agent: {e}")
             # Create a fallback agent
