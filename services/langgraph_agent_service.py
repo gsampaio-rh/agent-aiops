@@ -227,7 +227,16 @@ class LangGraphAgent(AgentServiceInterface):
         )
         
         workflow.add_edge("tool_selection", "tool_execution")
-        workflow.add_edge("tool_execution", "final_answer")
+        
+        # Add conditional edge from tool_execution to handle retries
+        workflow.add_conditional_edges(
+            "tool_execution",
+            self._should_retry_after_error,
+            {
+                "retry": "reasoning",
+                "continue": "final_answer"
+            }
+        )
         
         workflow.add_edge("final_answer", END)
         
@@ -320,12 +329,37 @@ class LangGraphAgent(AgentServiceInterface):
                 # Parse tool command: "TOOL_USE: tool_name: query"
                 try:
                     tool_part = content.split("TOOL_USE:", 1)[1].strip()
-                    if ":" in tool_part:
-                        tool_name, tool_query = tool_part.split(":", 1)
-                        tool_name = tool_name.strip()
-                        tool_query = tool_query.strip()
-                        tool_command = tool_part
-                        break
+                    
+                    # More robust parsing: look for known tool names at the start
+                    available_tools = list(self.tools.keys())
+                    tool_found = False
+                    
+                    for available_tool in available_tools:
+                        if tool_part.startswith(available_tool + ":"):
+                            tool_name = available_tool
+                            tool_query = tool_part[len(available_tool) + 1:].strip()
+                            tool_command = tool_part
+                            tool_found = True
+                            break
+                    
+                    # Fallback to simple split if no known tool found
+                    if not tool_found and ":" in tool_part:
+                        potential_tool, potential_query = tool_part.split(":", 1)
+                        potential_tool = potential_tool.strip()
+                        potential_query = potential_query.strip()
+                        
+                        # Check if it's a valid tool name
+                        if potential_tool in available_tools:
+                            tool_name = potential_tool
+                            tool_query = potential_query
+                            tool_command = tool_part
+                        else:
+                            # Invalid tool name - we'll handle this below
+                            tool_name = potential_tool
+                            tool_query = potential_query
+                            tool_command = tool_part
+                    
+                    break
                 except Exception as e:
                     self.logger.error("Failed to parse tool command", error=str(e), content=content)
         
@@ -348,6 +382,38 @@ class LangGraphAgent(AgentServiceInterface):
             "metadata": {"node": "tool_execution", "tool": tool_name, "query": tool_query}
         }
         state["agent_steps"].append(step_data)
+        
+        # Check if the tool exists before proceeding
+        if tool_name not in self.tools:
+            # Invalid tool selected - inform the LLM to retry with correct tool
+            available_tools_list = ', '.join(self.tools.keys())
+            error_step = {
+                "step_type": "error",
+                "content": f"Tool '{tool_name}' is not available. Available tools are: {available_tools_list}. Please retry with TOOL_USE: [tool_name]: [query] format.",
+                "timestamp": time.time(),
+                "metadata": {
+                    "node": "tool_execution",
+                    "tool": tool_name,
+                    "available_tools": list(self.tools.keys()),
+                    "error": "invalid_tool_name",
+                    "retry_needed": True
+                }
+            }
+            state["agent_steps"].append(error_step)
+            
+            # Set the state to go back to reasoning to let the LLM retry
+            state["current_step"] = "error_retry"
+            return state
+        
+        # Check for duplicate requests (prevent the double request issue)
+        recent_requests = [step for step in state["agent_steps"][-3:] 
+                          if step.get("step_type") == "tool_execution_request" 
+                          and step.get("metadata", {}).get("tool") == tool_name
+                          and step.get("metadata", {}).get("query") == tool_query]
+        
+        if recent_requests:
+            self.logger.warning(f"Duplicate tool execution request detected for {tool_name}, skipping")
+            return state
         
         # Log tool execution request for UI workflow (DO NOT execute automatically)
         self.logger.info(f"Tool execution requested by agent: {tool_name} with query: {tool_query}")
@@ -475,6 +541,24 @@ class LangGraphAgent(AgentServiceInterface):
             # Default to final answer if no clear tool usage detected
             return "final_answer"
     
+    def _should_retry_after_error(self, state: AgentState) -> str:
+        """Determine if we should retry after an error or continue to final answer."""
+        # Check if the current state indicates a retry is needed
+        if state.get("current_step") == "error_retry":
+            # Check iteration count to avoid infinite loops
+            if state["iteration_count"] < state["max_iterations"]:
+                return "retry"
+        
+        # Check if the last step was an error with retry_needed flag
+        if state["agent_steps"]:
+            last_step = state["agent_steps"][-1]
+            if (last_step.get("step_type") == "error" and 
+                last_step.get("metadata", {}).get("retry_needed") and
+                state["iteration_count"] < state["max_iterations"]):
+                return "retry"
+        
+        return "continue"
+    
 
     
     def _get_system_prompt(self) -> str:
@@ -500,14 +584,17 @@ IMPORTANT: Follow this exact pattern for ALL responses:
    - FINAL_ANSWER: [your direct response]
 
 CRITICAL RULES:
-- For questions about health, benefits, current events, specific facts: USE WEB_SEARCH
+- ALWAYS use the exact tool names available: {', '.join(self.tools.keys()) if self.tools else 'No tools available'}
+- For web searches: USE "web_search"
+- For terminal commands: USE "terminal"
 - After TOOL_USE, STOP immediately - do not add anything else
 - The system will execute the tool and provide results automatically
-- Use EXACT format: "TOOL_USE: web_search: health benefits of meditation"
+- Use EXACT format: "TOOL_USE: [exact_tool_name]: [command_or_query]"
 - Never add explanations after TOOL_USE
 
 EXAMPLES:
 - "What are the health benefits of meditation?" → TOOL_USE: web_search: health benefits of meditation
+- "Check TLS certificate expiration" → TOOL_USE: terminal: openssl s_client -connect localhost:8443 -showcerts
 - "What's the weather today?" → TOOL_USE: web_search: weather today
 - "What is 2+2?" → FINAL_ANSWER: 4
 
@@ -546,9 +633,11 @@ IMPORTANT: Follow this exact pattern for ALL responses:
 CRITICAL RULES:
 - Always consider conversation history when formulating responses
 - Reference previous information when relevant (e.g., "As you mentioned earlier...")
-- For new factual queries: USE WEB_SEARCH
+- ALWAYS use the exact tool names available: {', '.join(self.tools.keys()) if self.tools else 'No tools available'}
+- For web searches: USE "web_search"
+- For terminal commands: USE "terminal"
 - After TOOL_USE, STOP immediately - do not add anything else
-- Use EXACT format: "TOOL_USE: web_search: health benefits of meditation"
+- Use EXACT format: "TOOL_USE: [exact_tool_name]: [command_or_query]"
 - Never add explanations after TOOL_USE
 
 EXAMPLES:
