@@ -11,8 +11,8 @@ AGENT_CONFIG: Dict[str, Any] = {
     "enable_terminal": True,
     "show_thinking_process": True,
     "mcp_servers": ["desktop_commander"],
-    "use_langgraph": False,  # Toggle between ReactAgent and LangGraphAgent
-    "agent_type": "react"  # "react" or "langgraph"
+    "use_langgraph": True,  # Toggle between ReactAgent and LangGraphAgent
+    "agent_type": "langgraph",  # "react" or "langgraph"
 }
 
 # MCP (Model Context Protocol) configuration
@@ -70,7 +70,7 @@ TERMINAL_SECURITY: Dict[str, Any] = {
     ]
 }
 
-# Search configuration  
+# Search configuration
 SEARCH_CONFIG: Dict[str, Any] = {
     "providers": {
         "duckduckgo": {

@@ -42,7 +42,11 @@ class AgentFactory:
         
         # Determine agent type from config if not specified
         if agent_type is None:
-            agent_type = AGENT_CONFIG.get("agent_type", "react")
+            # Default to LangGraph if available, fallback to react
+            if AgentFactory.is_langgraph_available():
+                agent_type = AGENT_CONFIG.get("agent_type", "langgraph")
+            else:
+                agent_type = "react"
         
         logger.info("Creating agent", agent_type=agent_type, model=model)
         

@@ -1,6 +1,6 @@
-# 🤖 Streamlit Ollama AI Agent Chatbot
+# 🤖 Advanced AI Agent Platform
 
-A minimalist, high-end AI agent interface built on Streamlit and Ollama, inspired by Dieter Rams' design principles and Apple's user experience philosophy. Features intelligent agent capabilities with web search and real-time reasoning visualization.
+A sophisticated, enterprise-grade AI agent platform built on Streamlit and Ollama, featuring multiple agent implementations with advanced workflow management. Combines Apple-inspired design with cutting-edge AI orchestration capabilities including LangGraph integration and real-time reasoning visualization.
 
 ## ✨ Features
 
@@ -9,11 +9,15 @@ A minimalist, high-end AI agent interface built on Streamlit and Ollama, inspire
 - **Real-time Streaming**: Live response streaming with elegant visual feedback
 - **Responsive Design**: Seamless experience across desktop and mobile devices
 
-### 🧠 **Intelligent Agent Mode**
-- **React Agent Pattern**: Step-by-step reasoning with tool selection and execution
+### 🧠 **Advanced Agent System**
+- **Dual Agent Architecture**: Choose between ReactAgent and LangGraph implementations
+- **LangGraph Integration**: State-of-the-art workflow management with advanced state handling
+- **React Agent Pattern**: Traditional step-by-step reasoning with tool selection and execution
+- **Dynamic Agent Switching**: Runtime switching between agent implementations
 - **Web Search Integration**: Real-time web search with DuckDuckGo and fallback providers
-- **Thinking Visualization**: Watch the AI reason through problems in real-time
+- **Thinking Visualization**: Watch AI reason through problems with sophisticated animations
 - **Tool Orchestration**: Intelligent tool selection and result synthesis
+- **Memory Management**: Built-in conversation memory and state persistence
 
 ### 📊 **Advanced Analytics**
 - **Comprehensive Metrics**: Technical performance data (latency, tokens, throughput)
@@ -22,8 +26,29 @@ A minimalist, high-end AI agent interface built on Streamlit and Ollama, inspire
 
 ### ⚙️ **Powerful Configuration**
 - **Model Flexibility**: Easy switching between Ollama models with live agent updates
+- **Agent Type Selection**: Choose between ReactAgent (Original) and LangGraph (Advanced)
 - **Parameter Tuning**: Real-time adjustment of temperature, tokens, and sampling
 - **Agent Controls**: Toggle reasoning visibility and tool availability
+- **Workflow Management**: Advanced state management and tool orchestration
+
+## 🆕 What's New
+
+### **LangGraph Integration (Latest)**
+- **🔀 Dual Agent Architecture**: Choose between ReactAgent and LangGraph implementations
+- **🧠 Advanced Workflows**: State machine-based processing with sophisticated orchestration
+- **🔄 Runtime Agent Switching**: Change agent types without restarting
+- **🎯 Enhanced Tool Results**: Improved tool result capture and display
+- **⚡ Performance Optimizations**: Eliminated duplicate steps and improved workflow efficiency
+- **🎨 Sophisticated Animations**: Jobs/Ive-inspired thinking indicators and visual feedback
+- **🛠️ Factory Pattern**: Centralized agent creation with automatic tool registration
+- **🔧 UI Compatibility**: Seamless integration with existing interface components
+
+### **Recent Improvements**
+- **🔍 Enhanced Web Search**: Better result parsing and fallback mechanisms
+- **💾 Memory Management**: Improved conversation state handling
+- **🚀 Tool Performance**: Faster tool execution and result processing
+- **🎨 Visual Polish**: Refined animations and user experience elements
+- **📊 Better Analytics**: Enhanced logging and performance monitoring
 
 ## 🚀 Quick Start
 
@@ -51,6 +76,8 @@ A minimalist, high-end AI agent interface built on Streamlit and Ollama, inspire
    ```bash
    pip install -r requirements.txt
    ```
+   
+   > **Note**: The application includes optional LangGraph dependencies for advanced workflow management. All dependencies are automatically installed via requirements.txt.
 
 3. **Run the application**:
    ```bash
@@ -73,8 +100,12 @@ agent-aiops/
 ├── services/
 │   ├── __init__.py
 │   ├── ollama_service.py      # 🤖 Ollama API integration
-│   ├── agent_service.py       # 🧠 React Agent implementation
-│   └── search_service.py      # 🔍 Web search providers
+│   ├── agent_service.py       # 🧠 ReactAgent implementation
+│   ├── langgraph_agent_service.py # 🔀 LangGraph agent implementation
+│   ├── agent_factory.py       # 🏭 Agent creation factory
+│   ├── search_service.py      # 🔍 Web search providers
+│   ├── mcp_service.py         # 🔌 Model Context Protocol integration
+│   └── terminal_tool.py       # 💻 Terminal execution tool
 ├── utils/
 │   ├── __init__.py
 │   └── chat_utils.py          # 💬 Chat utility functions
@@ -128,19 +159,43 @@ This application follows Dieter Rams' ten principles of good design:
 
 ## 🔧 Advanced Usage
 
-### 🤖 **Agent Mode**
+### 🤖 **Agent Implementations**
 
-Switch to **Agent Mode** in the sidebar to enable intelligent reasoning:
+#### **ReactAgent (Original)**
+The traditional reasoning approach with step-by-step logic:
+- **Sequential Processing**: Linear thought → action → observation pattern
+- **Tool Integration**: Web search and terminal tools
+- **Real-time Reasoning**: Watch the AI think through problems
+- **Proven Reliability**: Battle-tested implementation
 
-1. **Ask complex questions** that require research or multi-step thinking
-2. **Watch the AI reason** through problems step-by-step
-3. **See tool selection** and web search in real-time
-4. **Toggle thinking visibility** to focus on results when needed
+#### **LangGraph Agent (Advanced)**
+State-of-the-art workflow management with sophisticated orchestration:
+- **Advanced Workflow**: State machine-based processing with nodes and edges
+- **Memory Management**: Built-in conversation state and persistence
+- **Tool Orchestration**: Superior tool selection and result synthesis
+- **Extensible Architecture**: Easy to add new workflow nodes and capabilities
+- **Performance Optimized**: Efficient state transitions and result handling
+
+#### **Agent Selection**
+Choose your preferred agent implementation in the sidebar:
+1. **ReactAgent**: Perfect for traditional step-by-step reasoning
+2. **LangGraph**: Ideal for complex workflows requiring advanced state management
+3. **Runtime Switching**: Change agent types without restarting the application
+
+### 🎯 **Using Agent Mode**
+
+1. **Enable Agent Mode** in the sidebar
+2. **Select your preferred agent type** (ReactAgent or LangGraph)
+3. **Ask complex questions** that require research or multi-step thinking
+4. **Watch the AI reason** through problems step-by-step
+5. **See tool selection** and web search in real-time
+6. **Toggle thinking visibility** to focus on results when needed
 
 **Example Agent Queries:**
 - "What's the latest news about AI developments?"
 - "Compare the pros and cons of different programming languages"
 - "Research and summarize recent scientific breakthroughs"
+- "Analyze current market trends in technology"
 
 ### 🔍 **Web Search Integration**
 
@@ -290,6 +345,7 @@ Errors by Module:
    - Ensure Ollama is running and model is selected
    - Check browser console for errors
    - Try switching models in sidebar
+   - Try switching between ReactAgent and LangGraph in sidebar
 
 4. **Web search not working**
    - Check internet connection
@@ -307,7 +363,13 @@ Errors by Module:
    - Check browser console for JavaScript errors
    - Ensure all UI modules are properly imported
 
-7. **Logging issues**
+7. **LangGraph agent issues**
+   - Ensure LangGraph dependencies are installed: `pip install -r requirements.txt`
+   - Check for circular import errors in browser console
+   - Tool registration failures usually self-resolve - tools remain available
+   - Try switching to ReactAgent if LangGraph has issues
+
+8. **Logging issues**
    - Check write permissions for the `logs/` directory
    - Verify log directory exists: `mkdir -p logs`
    - Check disk space: `df -h`
@@ -348,9 +410,13 @@ The modular architecture makes development easier:
 ### **Adding New Features**
 
 1. **New UI components**: Add to `ui/components.py`
-2. **New agent tools**: Extend `services/agent_service.py`
-3. **New styling**: Modify `ui/styles.py`
-4. **New utilities**: Add to appropriate `utils/` module
+2. **New agent tools**: 
+   - For ReactAgent: Extend `services/agent_service.py`
+   - For LangGraph: Extend `services/langgraph_agent_service.py`
+   - Or add to both via `services/agent_factory.py`
+3. **New workflow nodes**: Add to LangGraph agent for advanced state management
+4. **New styling**: Modify `ui/styles.py`
+5. **New utilities**: Add to appropriate `utils/` module
 
 ## 📝 License
 
@@ -365,6 +431,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - Maintain Jobs/Ive design principles
 - Add appropriate documentation
 - Test both normal and agent modes
+- Test both ReactAgent and LangGraph implementations
+- Ensure cross-agent compatibility for new features
 
 ## 📞 Support
 
@@ -372,4 +440,4 @@ For support and questions, please open an issue in the repository.
 
 ---
 
-**Built with ❤️ using enterprise-grade architecture and Apple-inspired design principles.**
+**Built with ❤️ using enterprise-grade architecture, cutting-edge AI workflows, and Apple-inspired design principles.**
