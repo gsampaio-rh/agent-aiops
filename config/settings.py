@@ -66,6 +66,17 @@ LOGGING_CONFIG = {
     "backup_count": int(os.getenv("LOG_BACKUP_COUNT", "5"))
 }
 
+# RAG configuration
+RAG_CONFIG_SETTINGS = {
+    "enabled": os.getenv("RAG_ENABLED", "true").lower() == "true",
+    "documents_path": os.getenv("RAG_DOCUMENTS_PATH", "./documents"),
+    "cache_dir": os.getenv("RAG_CACHE_DIR", "./cache"),
+    "embedding_model": os.getenv("RAG_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
+    "max_results": int(os.getenv("RAG_MAX_RESULTS", "3")),
+    "chunk_size": int(os.getenv("RAG_CHUNK_SIZE", "500")),
+    "similarity_threshold": float(os.getenv("RAG_SIMILARITY_THRESHOLD", "0.7")),
+}
+
 
 class AppConfig(BaseSettings):
     """Application configuration with validation."""

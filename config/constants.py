@@ -127,3 +127,19 @@ TOOL_EXECUTION: Dict[str, Any] = {
     "retry_failed_tools": True,
     "max_retries": 2
 }
+
+# RAG (Retrieval-Augmented Generation) configuration
+RAG_CONFIG: Dict[str, Any] = {
+    "enabled": True,
+    "documents_path": "./documents",
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "max_results": 3,
+    "chunk_size": 500,
+    "chunk_overlap": 50,
+    "similarity_threshold": 0.5,
+    "supported_extensions": [".md", ".txt", ".pdf"],
+    "cache_embeddings": True,
+    "embeddings_cache_file": "./cache/rag_embeddings.pkl",
+    "auto_refresh": True,
+    "refresh_interval": 3600  # 1 hour in seconds
+}

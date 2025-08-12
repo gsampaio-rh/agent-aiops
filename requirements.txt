@@ -13,3 +13,8 @@ langgraph>=0.2.0
 langchain>=0.3.0
 langchain-core>=0.3.0
 langchain-community>=0.3.0
+# RAG dependencies
+sentence-transformers>=2.2.0
+numpy>=1.21.0
+scikit-learn>=1.0.0
+PyPDF2>=3.0.0
