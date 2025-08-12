@@ -178,6 +178,9 @@ def render_tool_execution_success(tool_name: str, provider: str, duration_ms: in
         total_results: Number of results returned
         results: The actual results content
     """
+    # Ensure total_results is properly handled for all tools
+    results_display = total_results if total_results > 0 else "0"
+    
     st.markdown(f"""
     <div class="tool-execution-success">
         <div class="execution-header">
@@ -188,7 +191,7 @@ def render_tool_execution_success(tool_name: str, provider: str, duration_ms: in
             <span class="metadata-item">🔧 {tool_name}</span>
             <span class="metadata-item">🌐 {provider}</span>
             <span class="metadata-item">⏱️ {duration_ms}ms</span>
-            <span class="metadata-item">📊 {total_results} results</span>
+            <span class="metadata-item">📊 {results_display} results</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -433,8 +436,9 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
                     </div>
                     """, unsafe_allow_html=True)
         else:
-            # Web search and other tools
-            st.info(f"🔧 **{tool_name}** retrieved {metadata.get('total_results', 0)} results from {metadata.get('provider', 'search')} in {metadata.get('search_time_ms', 0)}ms")
+            # Web search and other tools - handle different metadata keys for different tools
+            results_count = metadata.get('total_results', metadata.get('results_found', 0))
+            st.info(f"🔧 **{tool_name}** retrieved {results_count} results from {metadata.get('provider', 'search')} in {metadata.get('search_time_ms', 0)}ms")
             
             # Show expandable results preview
             with st.expander("📋 Preview Results", expanded=False):
@@ -474,16 +478,19 @@ def handle_tool_execution_workflow(tool_name: str, query: str, description: str,
                     
                     # Accept: Add TOOL_RESULT step to timeline and trigger finalization
                     
+                    # Get results count - handle different metadata keys for different tools
+                    results_count = metadata.get('total_results', metadata.get('results_found', 0))
+                    
                     # Create TOOL_RESULT step
                     tool_result_step = AgentStep(
                         step_type=StepType.TOOL_RESULT,
-                        content=f"Retrieved {metadata.get('total_results', 0)} results from {metadata.get('provider', 'search')} in {metadata.get('search_time_ms', 0)}ms" if tool_name != "terminal" else f"Executed command with exit code {metadata.get('exit_code', 0)}",
+                        content=f"Retrieved {results_count} results from {metadata.get('provider', 'search')} in {metadata.get('search_time_ms', 0)}ms" if tool_name != "terminal" else f"Executed command with exit code {metadata.get('exit_code', 0)}",
                         timestamp=time.time(),
                         metadata={
                             "tool_name": tool_name,
                             "provider": metadata.get("provider", "terminal" if tool_name == "terminal" else "Unknown"),
                             "search_time_ms": metadata.get("search_time_ms", 0),
-                            "total_results": metadata.get("total_results", 0),
+                            "total_results": results_count,  # Normalize to total_results for consistency
                             "results_preview": (result.get("output", "")[:200] + "..." if len(result.get("output", "")) > 200 else result.get("output", "")) if tool_name == "terminal" else ((result.get("results") or result.get("output", ""))[:200] + "..." if len(result.get("results") or result.get("output", "")) > 200 else (result.get("results") or result.get("output", ""))),
                             "full_results": result.get("output", "") if tool_name == "terminal" else (result.get("results") or result.get("output", "")),
                             "user_decision": "accepted"

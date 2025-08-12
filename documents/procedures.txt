@@ -1,0 +1,237 @@
+OPERATIONAL PROCEDURES - Agent-AIOps Platform
+
+=== DAILY OPERATIONS ===
+
+System Health Check (Daily - 9:00 AM):
+1. Check Ollama service status: curl http://localhost:11434/api/version
+2. Verify model availability: ollama list
+3. Test agent functionality through UI
+4. Review overnight logs in /logs directory
+5. Check system resources: CPU, memory, disk space
+6. Validate backup completion
+
+Agent Model Management:
+- Monitor model performance metrics
+- Rotate models based on usage patterns
+- Update models: ollama pull <model-name>
+- Test new models before production deployment
+
+User Support:
+- Monitor user feedback and error reports
+- Update knowledge base with new solutions
+- Test frequently reported issues
+- Maintain FAQ documentation
+
+=== WEEKLY OPERATIONS ===
+
+Performance Review (Mondays):
+1. Analyze response time metrics
+2. Review tool usage statistics
+3. Check conversation memory efficiency
+4. Evaluate search result quality
+5. Monitor resource consumption trends
+
+Security Updates (Wednesdays):
+1. Update system packages: apt update && apt upgrade
+2. Review access logs for anomalies
+3. Rotate API keys and certificates
+4. Scan for vulnerabilities
+5. Update security documentation
+
+Knowledge Base Maintenance (Fridays):
+1. Refresh RAG document index
+2. Add new documentation to /documents
+3. Remove outdated information
+4. Test search functionality
+5. Validate document embeddings
+
+=== MONTHLY OPERATIONS ===
+
+Capacity Planning:
+- Review growth trends
+- Plan hardware upgrades
+- Evaluate model storage requirements
+- Assess network bandwidth needs
+
+Disaster Recovery Testing:
+1. Test backup restoration procedures
+2. Validate failover mechanisms
+3. Update recovery documentation
+4. Train team on emergency procedures
+
+Documentation Updates:
+- Review and update all procedures
+- Refresh troubleshooting guides
+- Update architecture documentation
+- Validate runbook accuracy
+
+=== EMERGENCY PROCEDURES ===
+
+Ollama Service Failure:
+1. Check service status: systemctl status ollama
+2. Restart service: systemctl restart ollama
+3. Verify port availability: netstat -tlnp | grep 11434
+4. Check disk space: df -h
+5. Review error logs: journalctl -u ollama -f
+6. If unrecoverable, reinstall Ollama
+
+Agent Not Responding:
+1. Check Streamlit application status
+2. Restart application: streamlit run app.py
+3. Verify agent initialization in logs
+4. Test with simple queries
+5. Escalate if issues persist
+
+Tool Execution Failures:
+1. Identify failing tool from logs
+2. Test tool independently
+3. Check tool dependencies
+4. Review tool permissions
+5. Update or disable problematic tools
+
+Memory/Performance Issues:
+1. Monitor system resources: htop, free -h
+2. Identify memory leaks in logs
+3. Restart services if needed
+4. Clear temporary files and caches
+5. Consider model downsizing
+
+=== BACKUP AND RECOVERY ===
+
+Backup Schedule:
+- Daily: Logs, configuration files, user data
+- Weekly: Complete system backup
+- Monthly: Archive old backups
+
+Backup Locations:
+- Local: /backup/daily/, /backup/weekly/
+- Remote: Configured cloud storage
+- Offline: Monthly tape backup
+
+Recovery Procedures:
+1. Assess damage scope
+2. Stop affected services
+3. Restore from most recent backup
+4. Test system functionality
+5. Resume normal operations
+6. Document incident
+
+=== MONITORING AND ALERTING ===
+
+Key Metrics to Monitor:
+- Ollama service uptime
+- Agent response times
+- Tool success rates
+- System resource usage
+- User session counts
+- Error rates by component
+
+Alert Thresholds:
+- CPU usage > 80% for 5 minutes
+- Memory usage > 90% for 5 minutes
+- Error rate > 5% for 10 minutes
+- Service downtime > 2 minutes
+- Disk space < 10% free
+
+Notification Channels:
+- Email: alerts@company.com
+- Slack: #aiops-alerts channel
+- SMS: Critical alerts only
+- Dashboard: Real-time status display
+
+=== TOOL MANAGEMENT ===
+
+Web Search Tool:
+- Monitor provider availability (DuckDuckGo, SearX)
+- Test search quality regularly
+- Update provider configurations
+- Review rate limiting settings
+
+Terminal Tool:
+- Audit command usage logs
+- Update security whitelist
+- Test command validation
+- Review permission settings
+
+RAG Tool:
+- Monitor document index freshness
+- Add new knowledge base content
+- Test search relevance
+- Optimize embedding performance
+
+=== USER MANAGEMENT ===
+
+Session Management:
+- Monitor active user sessions
+- Clean up abandoned sessions
+- Review session timeout settings
+- Track usage patterns
+
+Performance Optimization:
+- Analyze user query patterns
+- Optimize for common use cases
+- Tune model parameters
+- Implement caching strategies
+
+Support Procedures:
+1. Gather user problem description
+2. Check recent error logs
+3. Reproduce issue if possible
+4. Provide workaround solution
+5. Document solution in knowledge base
+
+=== MAINTENANCE WINDOWS ===
+
+Scheduled Maintenance (Saturdays 2-4 AM):
+1. Stop all services gracefully
+2. Perform system updates
+3. Update models and dependencies
+4. Run system diagnostics
+5. Start services in order
+6. Verify functionality
+7. Notify completion
+
+Emergency Maintenance:
+1. Assess criticality and impact
+2. Notify stakeholders immediately
+3. Implement minimal fix quickly
+4. Schedule proper fix for next window
+5. Document emergency procedures
+
+=== COMPLIANCE AND AUDITING ===
+
+Log Retention:
+- System logs: 90 days
+- User activity: 30 days
+- Error logs: 180 days
+- Audit logs: 1 year
+
+Privacy Controls:
+- No personal data logging
+- Secure conversation handling
+- Regular data purge procedures
+- Access control validation
+
+Security Audits:
+- Monthly permission reviews
+- Quarterly vulnerability scans
+- Annual penetration testing
+- Continuous compliance monitoring
+
+=== CONTACT INFORMATION ===
+
+Escalation Contacts:
+- Level 1: Operations Team (ext. 1001)
+- Level 2: Engineering Team (ext. 2001)  
+- Level 3: Architecture Team (ext. 3001)
+- Emergency: On-call Manager (emergency hotline)
+
+Vendor Contacts:
+- Ollama Support: support@ollama.ai
+- Cloud Provider: cloud-support@provider.com
+- Hardware Vendor: hardware@vendor.com
+
+Internal Teams:
+- Security Team: security@company.com
+- Network Team: network@company.com
+- Database Team: dba@company.com

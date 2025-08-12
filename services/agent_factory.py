@@ -98,6 +98,20 @@ class AgentFactory:
                 logger.error("Could not import TerminalTool", error=str(e))
             except Exception as e:
                 logger.error("Failed to register terminal tool", error=str(e))
+        
+        # Register RAG tool if enabled
+        from config.constants import RAG_CONFIG
+        if RAG_CONFIG.get("enabled", True):
+            try:
+                # Import here to avoid circular imports
+                from services.rag_tool import RAGTool
+                rag_tool = RAGTool()
+                agent.register_tool(rag_tool)
+                logger.info("Registered RAG tool")
+            except ImportError as e:
+                logger.error("Could not import RAGTool", error=str(e))
+            except Exception as e:
+                logger.error("Failed to register RAG tool", error=str(e))
     
     @staticmethod
     def get_available_agent_types() -> Dict[str, str]:

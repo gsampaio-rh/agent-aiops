@@ -175,6 +175,53 @@ def render_sidebar() -> Dict[str, Any]:
                     st.info("💬 Chat history available")
                     st.caption("Switch to Agent mode for memory features")
             
+            # RAG status indicator
+            if st.session_state.agent_mode:
+                st.subheader("📚 Knowledge Base")
+                try:
+                    # Get RAG tool status if available
+                    if st.session_state.agent and hasattr(st.session_state.agent, 'tools'):
+                        rag_tool = st.session_state.agent.tools.get('rag_search')
+                        if rag_tool:
+                            status = rag_tool.get_status()
+                            
+                            if status.get("initialized", False):
+                                docs_count = status.get("documents_indexed", 0)
+                                st.success(f"✅ {docs_count} documents indexed")
+                                st.caption("Agent can search local knowledge base")
+                                
+                                # Show documents path and refresh option
+                                docs_path = status.get("documents_path", "./documents")
+                                st.caption(f"📁 Path: {docs_path}")
+                                
+                                # Add refresh button
+                                if st.button("🔄 Refresh Index", help="Re-scan documents folder"):
+                                    with st.spinner("Refreshing document index..."):
+                                        refresh_result = rag_tool.refresh_index()
+                                        if refresh_result.get("success"):
+                                            st.success(f"✅ Index refreshed! {refresh_result.get('documents_indexed', 0)} documents")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ Refresh failed: {refresh_result.get('error', 'Unknown error')}")
+                            else:
+                                st.warning("⚠️ Knowledge base not initialized")
+                                st.caption("Check documents folder and dependencies")
+                        else:
+                            st.info("📚 Knowledge base available")
+                            st.caption("RAG tool will be loaded when needed")
+                    else:
+                        st.info("📚 Knowledge base available")
+                        st.caption("Switch to Agent mode to use RAG search")
+                        
+                except Exception as e:
+                    st.error("❌ RAG status check failed")
+                    st.caption(f"Error: {str(e)}")
+            else:
+                # Show RAG info in normal mode
+                st.subheader("📚 Knowledge Base")
+                st.info("💡 Switch to Agent mode")
+                st.caption("Enable Agent mode to search local documents")
+            
             return {
                 "model": current_model,
                 "params": params,
