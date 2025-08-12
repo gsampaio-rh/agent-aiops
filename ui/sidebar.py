@@ -22,6 +22,9 @@ from services.agent_factory import create_agent, AgentFactory
 from utils.chat_utils import (
     clear_chat_history, export_chat_history
 )
+import tempfile
+import os
+from pathlib import Path
 
 
 def render_sidebar() -> Dict[str, Any]:
@@ -190,11 +193,61 @@ def render_sidebar() -> Dict[str, Any]:
                                 st.success(f"✅ {docs_count} documents indexed")
                                 st.caption("Agent can search local knowledge base")
                                 
-                                # Show documents path and refresh option
+                                # Show documents path and list
                                 docs_path = status.get("documents_path", "./documents")
                                 st.caption(f"📁 Path: {docs_path}")
                                 
-                                # Add refresh button
+                                # Show document list in expander
+                                with st.expander("📄 View Documents", expanded=False):
+                                    _display_document_list(docs_path)
+                                
+                                # Document management section
+                                st.markdown("---")
+                                st.caption("📁 Document Management")
+                                
+                                # File upload interface
+                                uploaded_files = st.file_uploader(
+                                    "Upload documents",
+                                    accept_multiple_files=True,
+                                    type=['md', 'txt', 'pdf'],
+                                    help="Upload .md, .txt, or .pdf files to add to your knowledge base (Max 10MB per file)",
+                                    key="document_uploader"
+                                )
+                                
+                                if uploaded_files:
+                                    # Show upload preview
+                                    with st.expander("📋 Upload Preview", expanded=True):
+                                        total_size = sum(f.size for f in uploaded_files)
+                                        st.write(f"**{len(uploaded_files)} files selected** (Total: {_format_file_size(total_size)})")
+                                        
+                                        for f in uploaded_files:
+                                            col1, col2 = st.columns([3, 1])
+                                            with col1:
+                                                ext = Path(f.name).suffix.lower()
+                                                icon = {"md": "📝", "txt": "📄", "pdf": "📑"}.get(ext[1:], "📄")
+                                                st.write(f"{icon} {f.name}")
+                                            with col2:
+                                                st.caption(_format_file_size(f.size))
+                                    
+                                    # Upload button with confirmation
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        if st.button("📤 Add to Knowledge Base", help="Process and add uploaded files", type="primary", use_container_width=True):
+                                            with st.spinner("Processing uploaded documents..."):
+                                                upload_result = _handle_document_upload(uploaded_files, rag_tool)
+                                                if upload_result.get("success"):
+                                                    st.success(f"✅ Added {upload_result.get('files_processed', 0)} documents!")
+                                                    if upload_result.get("files_failed", 0) > 0:
+                                                        st.warning(f"⚠️ {upload_result.get('files_failed', 0)} files failed")
+                                                    st.rerun()
+                                                else:
+                                                    st.error(f"❌ Upload failed: {upload_result.get('error', 'Unknown error')}")
+                                    
+                                    with col2:
+                                        if st.button("🗑️ Clear Selection", help="Clear selected files", use_container_width=True):
+                                            st.rerun()
+                                
+                                # Refresh button
                                 if st.button("🔄 Refresh Index", help="Re-scan documents folder"):
                                     with st.spinner("Refreshing document index..."):
                                         refresh_result = rag_tool.refresh_index()
@@ -232,3 +285,212 @@ def render_sidebar() -> Dict[str, Any]:
     except Exception as e:
         st.error(f"Sidebar error: {e}")
         return {}
+
+
+def _handle_document_upload(uploaded_files, rag_tool):
+    """
+    Handle document upload and processing.
+    
+    Args:
+        uploaded_files: List of Streamlit uploaded file objects
+        rag_tool: RAG tool instance
+        
+    Returns:
+        Dict with success status and processing results
+    """
+    try:
+        from utils.logger import get_logger
+        logger = get_logger(__name__)
+        
+        if not uploaded_files:
+            return {"success": False, "error": "No files uploaded"}
+        
+        # Get documents path from RAG tool
+        docs_path = Path(rag_tool.config.get("documents_path", "./documents"))
+        docs_path.mkdir(parents=True, exist_ok=True)
+        
+        files_processed = 0
+        files_failed = []
+        
+        for uploaded_file in uploaded_files:
+            try:
+                # Validate file type
+                file_extension = Path(uploaded_file.name).suffix.lower()
+                supported_extensions = rag_tool.config.get("supported_extensions", [".md", ".txt", ".pdf"])
+                
+                if file_extension not in supported_extensions:
+                    files_failed.append(f"{uploaded_file.name}: Unsupported file type")
+                    continue
+                
+                # Check file size (limit to 10MB)
+                max_size = 10 * 1024 * 1024  # 10MB
+                if uploaded_file.size > max_size:
+                    files_failed.append(f"{uploaded_file.name}: File too large (max 10MB)")
+                    continue
+                
+                # Save file to documents folder
+                file_path = docs_path / uploaded_file.name
+                
+                # Handle file name conflicts
+                counter = 1
+                original_stem = file_path.stem
+                while file_path.exists():
+                    file_path = docs_path / f"{original_stem}_{counter}{file_extension}"
+                    counter += 1
+                
+                # Write file content
+                with open(file_path, "wb") as f:
+                    f.write(uploaded_file.getvalue())
+                
+                logger.info(f"Uploaded document saved: {file_path}")
+                files_processed += 1
+                
+            except Exception as e:
+                logger.error(f"Failed to process uploaded file {uploaded_file.name}: {str(e)}")
+                files_failed.append(f"{uploaded_file.name}: {str(e)}")
+        
+        # Refresh the RAG index to include new documents
+        if files_processed > 0:
+            try:
+                refresh_result = rag_tool.refresh_index()
+                if not refresh_result.get("success"):
+                    logger.warning("Index refresh failed after upload", error=refresh_result.get("error"))
+            except Exception as e:
+                logger.error("Failed to refresh index after upload", error=str(e))
+        
+        # Prepare result
+        result = {
+            "success": files_processed > 0,
+            "files_processed": files_processed,
+            "files_failed": len(files_failed),
+            "total_files": len(uploaded_files)
+        }
+        
+        if files_failed:
+            result["failed_files"] = files_failed
+            result["error"] = f"Some files failed to process: {'; '.join(files_failed[:3])}"
+            if len(files_failed) > 3:
+                result["error"] += f" and {len(files_failed) - 3} more..."
+        
+        logger.info(f"Document upload completed", **result)
+        return result
+        
+    except Exception as e:
+        logger.error(f"Document upload failed: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Upload processing failed: {str(e)}",
+            "files_processed": 0
+        }
+
+
+def _display_document_list(docs_path):
+    """
+    Display list of documents in the knowledge base.
+    
+    Args:
+        docs_path: Path to documents folder
+    """
+    try:
+        docs_dir = Path(docs_path)
+        if not docs_dir.exists():
+            st.info("📁 Documents folder doesn't exist yet")
+            return
+        
+        # Get all supported document files
+        supported_extensions = [".md", ".txt", ".pdf"]
+        all_files = []
+        
+        for ext in supported_extensions:
+            files = list(docs_dir.glob(f"*{ext}"))
+            all_files.extend(files)
+        
+        if not all_files:
+            st.info("📄 No documents found")
+            st.caption("Upload documents using the interface below")
+            return
+        
+        # Sort files by modification time (newest first)
+        all_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        
+        # Header with bulk actions
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.write(f"**Found {len(all_files)} documents:**")
+        with col2:
+            if len(all_files) > 1:
+                if st.button("🗑️ Clear All", help="Delete all documents", key="delete_all_docs"):
+                    if st.session_state.get("confirm_delete_all", False):
+                        # Actually delete
+                        deleted_count = 0
+                        for file_path in all_files:
+                            if _delete_document(file_path):
+                                deleted_count += 1
+                        st.success(f"Deleted {deleted_count} documents")
+                        st.session_state.confirm_delete_all = False
+                        st.rerun()
+                    else:
+                        # Ask for confirmation
+                        st.session_state.confirm_delete_all = True
+                        st.warning("Click again to confirm deletion of all documents")
+        
+        # Show files
+        for file_path in all_files:
+            # Get file info
+            file_size = file_path.stat().st_size
+            file_size_str = _format_file_size(file_size)
+            
+            # Get file type icon
+            ext = file_path.suffix.lower()
+            icon = {"md": "📝", "txt": "📄", "pdf": "📑"}.get(ext[1:], "📄")
+            
+            # Display file info
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"{icon} **{file_path.name}**")
+                st.caption(f"Size: {file_size_str}")
+            
+            with col2:
+                # Add delete button
+                if st.button("🗑️", key=f"delete_{file_path.name}", help=f"Delete {file_path.name}"):
+                    if _delete_document(file_path):
+                        st.success(f"Deleted {file_path.name}")
+                        st.rerun()
+                    else:
+                        st.error(f"Failed to delete {file_path.name}")
+        
+    except Exception as e:
+        st.error(f"Error displaying documents: {str(e)}")
+
+
+def _format_file_size(size_bytes):
+    """Format file size in human readable format."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    else:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
+def _delete_document(file_path):
+    """
+    Delete a document file.
+    
+    Args:
+        file_path: Path to file to delete
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        from utils.logger import get_logger
+        logger = get_logger(__name__)
+        
+        file_path.unlink()
+        logger.info(f"Deleted document: {file_path}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to delete document {file_path}: {str(e)}")
+        return False
